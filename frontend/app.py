@@ -135,6 +135,32 @@ def create_app_view(page: ft.Page) -> ft.Control:
         padding=ft.Padding.only(top=10, bottom=4)
     )
 
+    # 6. Assinatura do desenvolvedor
+    signature = ft.Container(
+        content=ft.Column(
+            spacing=8,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Divider(height=1, color=COLOR_BORDER),
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    spacing=6,
+                    controls=[
+                        ft.Icon(ft.Icons.CODE_ROUNDED, size=14, color=COLOR_TEXT_MUTED),
+                        ft.Text("Desenvolvido por -", size=11, color=COLOR_TEXT_MUTED),
+                        ft.Text(
+                            "Leonardo Nascimento",
+                            size=11,
+                            weight=ft.FontWeight.W_600,
+                            color=COLOR_PRIMARY
+                        ),
+                    ]
+                ),
+            ]
+        ),
+        padding=ft.Padding.only(top=4, bottom=2)
+    )
+
     # Callbacks de Ação
     def on_pull_network():
         ip, cidr = get_local_network_info()
@@ -425,7 +451,8 @@ def create_app_view(page: ft.Page) -> ft.Control:
                 client_form,
                 progress_section,
                 device_table,
-                footer
+                footer,
+                signature
             ]
         ),
         bgcolor=COLOR_BG_DARK,

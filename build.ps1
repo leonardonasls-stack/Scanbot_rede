@@ -6,17 +6,18 @@ Write-Host "     Compilando SCAN BOT Rede com PyInstaller            " -Foregrou
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # Garante instalação das dependências
-Write-Host "[1/3] Verificando dependências..." -ForegroundColor Yellow
+Write-Host "[1/4] Verificando dependências..." -ForegroundColor Yellow
 python -m pip install -r requirements.txt
 
 # Executa os testes automatizados antes do empacotamento
-Write-Host "[2/3] Executando suíte de testes..." -ForegroundColor Yellow
+Write-Host "[2/4] Executando suíte de testes..." -ForegroundColor Yellow
 python -m unittest discover -s tests -p "test_*.py"
 
-# Executa o PyInstaller
-Write-Host "[3/3] Gerando executável único (.exe) com PyInstaller..." -ForegroundColor Yellow
+# Executa o PyInstaller (version_info.txt define o fornecedor LLSystem nos metadados)
+Write-Host "[3/4] Gerando executável único (.exe) com PyInstaller..." -ForegroundColor Yellow
 python -m PyInstaller --noconfirm --onefile --windowed `
     --name "SCAN-BOT-Rede" `
+    --version-file "version_info.txt" `
     --add-data "backend;backend" `
     --add-data "frontend;frontend" `
     --collect-all "flet" `
@@ -24,6 +25,28 @@ python -m PyInstaller --noconfirm --onefile --windowed `
     --collect-all "reportlab" `
     --hidden-import "httpx" `
     main.py
+
+# Assina digitalmente o executável para o Windows exibir "Fornecedor: LLSystem"
+Write-Host "[4/4] Assinando digitalmente o executável (LLSystem)..." -ForegroundColor Yellow
+$exePath = "dist\SCAN-BOT-Rede.exe"
+$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+    Where-Object { $_.Subject -like "CN=LLSystem*" -and $_.NotAfter -gt (Get-Date) } |
+    Sort-Object NotAfter -Descending |
+    Select-Object -First 1
+
+if ($cert) {
+    try {
+        $sig = Set-AuthenticodeSignature -FilePath $exePath -Certificate $cert -HashAlgorithm SHA256 `
+            -TimestampServer "http://timestamp.digicert.com"
+    } catch {
+        Write-Host "  Servidor de timestamp indisponível, assinando sem carimbo de tempo..." -ForegroundColor DarkYellow
+        $sig = Set-AuthenticodeSignature -FilePath $exePath -Certificate $cert -HashAlgorithm SHA256
+    }
+    Write-Host "  Assinatura: $($sig.Status) - $($sig.SignerCertificate.Subject)" -ForegroundColor Green
+} else {
+    Write-Host "  Certificado LLSystem não encontrado. O .exe NÃO foi assinado." -ForegroundColor DarkYellow
+    Write-Host "  Execute .\criar-certificado-llsystem.ps1 uma vez e rode o build novamente." -ForegroundColor DarkYellow
+}
 
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host "  Sucesso! Executável único gerado: dist/SCAN-BOT-Rede.exe " -ForegroundColor Green

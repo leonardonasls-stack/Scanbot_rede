@@ -1,0 +1,29 @@
+# Metadados de versao do executavel (lidos pelo PyInstaller via --version-file).
+# Aparecem em: botao direito no .exe > Propriedades > Detalhes.
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable('041604B0', [
+        StringStruct('CompanyName', 'LLSystem'),
+        StringStruct('FileDescription', 'SCAN BOT Rede - Varredura de equipamentos Control iD'),
+        StringStruct('FileVersion', '1.0.0.0'),
+        StringStruct('InternalName', 'SCAN-BOT-Rede'),
+        StringStruct('LegalCopyright', 'Copyright (c) 2026 LLSystem - Desenvolvido por Leonardo Nascimento'),
+        StringStruct('OriginalFilename', 'SCAN-BOT-Rede.exe'),
+        StringStruct('ProductName', 'SCAN BOT Rede'),
+        StringStruct('ProductVersion', '1.0.0.0')
+      ])
+    ]),
+    VarFileInfo([VarStruct('Translation', [0x0416, 1200])])
+  ]
+)
