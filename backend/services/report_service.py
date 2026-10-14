@@ -57,6 +57,7 @@ def export_to_csv(summary: ScanSummary, file_path: Optional[str] = None) -> str:
             "Endereco MAC",
             "Numero de Serie",
             "Modelo",
+            "Area / Local",
             "Versao Firmware",
             "Latencia (ms)",
             "Data/Hora Descoberta"
@@ -69,6 +70,7 @@ def export_to_csv(summary: ScanSummary, file_path: Optional[str] = None) -> str:
                 dev.mac,
                 dev.serial_number,
                 dev.model,
+                dev.area,
                 dev.firmware_version,
                 f"{dev.response_time_ms:.1f}",
                 dev.timestamp.strftime("%Y-%m-%d %H:%M:%S")

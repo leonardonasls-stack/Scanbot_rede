@@ -14,6 +14,7 @@ class TestDocumentGeneration(unittest.TestCase):
             serial_number="99887766",
             model="iDFace",
             firmware_version="2.4.1",
+            area="Recepção Central (Catraca Entrada)",
             response_time_ms=11.2,
             timestamp=datetime.now()
         )

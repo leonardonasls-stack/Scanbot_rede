@@ -311,18 +311,27 @@ def create_app_view(page: ft.Page) -> ft.Control:
         total_devices = len(device_table.devices)
         idfaces_count = sum(1 for d in device_table.devices if "face" in d.model.lower())
 
+        # Gerenciamento de seleção dos equipamentos para o documento
+        # Por padrão todos os equipamentos descobertos começam selecionados
+        selected_ips = {dev.ip for dev in device_table.devices}
+
         def close_dialog(_=None):
             page.pop_dialog()
 
         def confirm_and_generate(_=None):
+            chosen_devices = [d for d in device_table.devices if d.ip in selected_ips]
+            if not chosen_devices:
+                show_message("Selecione pelo menos um equipamento para incluir no documento.", is_error=True)
+                return
+
             page.pop_dialog()
             try:
-                summary = state.latest_summary or ScanSummary(
+                summary = ScanSummary(
                     network_target=state.default_cidr,
                     total_scanned=len(device_table.devices),
-                    total_found=len(device_table.devices),
+                    total_found=len(chosen_devices),
                     duration_seconds=time.perf_counter() - state.start_time if state.start_time else 0.0,
-                    devices=device_table.devices
+                    devices=chosen_devices
                 )
                 pdf_path = generate_internal_document_pdf(summary, metadata)
                 show_message(f"Documento Interno PDF gerado com sucesso: {pdf_path}")
@@ -330,13 +339,57 @@ def create_app_view(page: ft.Page) -> ft.Control:
             except Exception as ex:
                 show_message(f"Erro ao gerar documento PDF: {str(ex)}", is_error=True)
 
-        # Monta a lista detalhada de equipamentos para conferência no modal
+        txt_selection_counter = ft.Text(
+            f"Equipamentos Selecionados: {len(selected_ips)} de {len(device_table.devices)}",
+            size=12,
+            weight=ft.FontWeight.BOLD,
+            color=COLOR_SUCCESS
+        )
+
+        checkboxes_map = {}
+
+        def update_selection_state():
+            count_sel = len(selected_ips)
+            txt_selection_counter.value = f"Equipamentos Selecionados: {count_sel} de {len(device_table.devices)}"
+            txt_selection_counter.color = COLOR_SUCCESS if count_sel > 0 else COLOR_DANGER
+            txt_selection_counter.update()
+
+        def on_toggle_item(e, dev_ip: str):
+            if e.control.value:
+                selected_ips.add(dev_ip)
+            else:
+                selected_ips.discard(dev_ip)
+            update_selection_state()
+
+        def select_all_action(_=None):
+            for ip, cb in checkboxes_map.items():
+                cb.value = True
+                selected_ips.add(ip)
+                cb.update()
+            update_selection_state()
+
+        def deselect_all_action(_=None):
+            for ip, cb in checkboxes_map.items():
+                cb.value = False
+                selected_ips.discard(ip)
+                cb.update()
+            update_selection_state()
+
+        # Monta a lista detalhada com Checkboxes interativos
         device_items = []
         for idx, dev in enumerate(device_table.devices, start=1):
             badge_color = get_model_color(dev.model)
+            cb = ft.Checkbox(
+                value=(dev.ip in selected_ips),
+                fill_color=COLOR_SUCCESS,
+                on_change=lambda e, ip=dev.ip: on_toggle_item(e, ip)
+            )
+            checkboxes_map[dev.ip] = cb
+
             device_items.append(
                 ft.Container(
                     content=ft.Row([
+                        cb,
                         ft.Container(
                             content=ft.Text(f"#{idx}", size=11, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED),
                             width=28,
@@ -350,7 +403,17 @@ def create_app_view(page: ft.Page) -> ft.Control:
                                     padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                                     border_radius=4,
                                 ),
-                            ], spacing=8),
+                                ft.Container(
+                                    content=ft.Text(
+                                        f"Local: {dev.area}" if dev.area != "N/D" else "Local: N/D",
+                                        size=10,
+                                        color="#CBD5E1"
+                                    ),
+                                    bgcolor="#1E293B",
+                                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                    border_radius=4,
+                                ),
+                            ], spacing=6),
                             ft.Row([
                                 ft.Text(f"S/N: {dev.serial_number}", size=11, color=COLOR_TEXT_MUTED),
                                 ft.Text(f"MAC: {dev.mac}", size=11, color=COLOR_TEXT_MUTED),
@@ -361,7 +424,7 @@ def create_app_view(page: ft.Page) -> ft.Control:
                     bgcolor=COLOR_SURFACE,
                     border=ft.Border.all(1, COLOR_BORDER),
                     border_radius=6,
-                    padding=ft.Padding.all(8)
+                    padding=ft.Padding.all(6)
                 )
             )
 
@@ -369,49 +432,54 @@ def create_app_view(page: ft.Page) -> ft.Control:
             modal=True,
             title=ft.Row([
                 ft.Icon(ft.Icons.VERIFIED_OUTLINED, color=COLOR_PRIMARY, size=22),
-                ft.Text("Confirmar Emissão de Documento Interno", size=15, weight=ft.FontWeight.BOLD)
+                ft.Text("Confirmar Emissão de Documento / Auditoria", size=15, weight=ft.FontWeight.BOLD)
             ]),
             content=ft.Container(
                 content=ft.Column(
                     controls=[
-                        ft.Text("Verifique os dados abaixo antes de gerar o documento para uso interno:", size=12, color=COLOR_TEXT_MUTED),
+                        ft.Text(
+                            "Marque quais equipamentos devem entrar no documento oficial de auditoria:",
+                            size=12,
+                            color=COLOR_TEXT_MUTED
+                        ),
                         ft.Divider(height=10, color=COLOR_BORDER),
                         ft.Text(f"• Cliente: {metadata.cliente}", size=12, weight=ft.FontWeight.W_600),
                         ft.Text(f"• Endereço: {metadata.endereco_completo}", size=12),
                         ft.Text(f"• Técnico Responsável: {metadata.tecnico}", size=12),
-                        ft.Text(f"• Local dos Equipamentos: {metadata.local_equipamento}", size=12),
+                        ft.Text(f"• Local informado: {metadata.local_equipamento}", size=12),
                         ft.Divider(height=10, color=COLOR_BORDER),
-                        ft.Container(
-                            content=ft.Row([
-                                ft.Icon(ft.Icons.DEVICE_HUB_ROUNDED, color=COLOR_SUCCESS, size=18),
-                                ft.Text(
-                                    f"Total de Ativos: {total_devices} equipamento(s) ({idfaces_count} iDFace)",
-                                    size=12,
-                                    weight=ft.FontWeight.BOLD,
-                                    color=COLOR_SUCCESS
-                                )
-                            ]),
-                            bgcolor="#0F2D1F",
-                            padding=8,
-                            border_radius=6
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                txt_selection_counter,
+                                ft.Row([
+                                    ft.TextButton(
+                                        "Marcar Todos",
+                                        on_click=select_all_action,
+                                        style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=4))
+                                    ),
+                                    ft.TextButton(
+                                        "Desmarcar Todos",
+                                        on_click=deselect_all_action,
+                                        style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=4))
+                                    ),
+                                ], spacing=4)
+                            ]
                         ),
                         ft.Divider(height=10, color=COLOR_BORDER),
-                        ft.Row([
-                            ft.Icon(ft.Icons.LIST_ALT_ROUNDED, size=16, color=COLOR_PRIMARY),
-                            ft.Text(f"Equipamentos no Documento ({total_devices}):", size=12, weight=ft.FontWeight.BOLD),
-                        ], spacing=6),
                         *device_items,
                     ],
                     scroll=ft.ScrollMode.ALWAYS,
                     spacing=6
                 ),
-                width=560,
-                height=400,
+                width=620,
+                height=440,
             ),
             actions=[
-                ft.TextButton("Voltar / Editar", on_click=close_dialog),
+                ft.TextButton("Voltar / Cancelar", on_click=close_dialog),
                 ft.FilledButton(
-                    "Confirmar e Gerar PDF",
+                    "Gerar Documento Selecionado",
                     bgcolor=COLOR_SUCCESS,
                     color="#FFFFFF",
                     on_click=confirm_and_generate

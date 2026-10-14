@@ -207,6 +207,7 @@ def generate_internal_document_pdf(
             Paragraph("ENDEREÇO MAC", table_header_style),
             Paragraph("NÚMERO DE SÉRIE", table_header_style),
             Paragraph("MODELO", table_header_style),
+            Paragraph("ÁREA / LOCAL", table_header_style),
             Paragraph("FIRMWARE", table_header_style),
         ]
     ]
@@ -215,6 +216,7 @@ def generate_internal_document_pdf(
         table_data.append([
             Paragraph("-", table_cell_style),
             Paragraph("Nenhum equipamento localizado na varredura", table_cell_style),
+            Paragraph("-", table_cell_style),
             Paragraph("-", table_cell_style),
             Paragraph("-", table_cell_style),
             Paragraph("-", table_cell_style),
@@ -231,10 +233,11 @@ def generate_internal_document_pdf(
                 Paragraph(dev.mac, table_cell_mono),
                 Paragraph(dev.serial_number, table_cell_mono),
                 Paragraph(model_display, table_cell_style),
+                Paragraph(dev.area or "N/D", table_cell_style),
                 Paragraph(dev.firmware_version, table_cell_style),
             ])
 
-    devices_table = Table(table_data, colWidths=[36, 95, 115, 125, 95, 56])
+    devices_table = Table(table_data, colWidths=[28, 80, 95, 105, 80, 85, 49])
     t_style = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
         ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#475569")),

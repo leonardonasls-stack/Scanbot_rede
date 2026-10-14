@@ -62,6 +62,23 @@ class MockControlIdHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(200, data)
             return
 
+        if path == "/load_objects.fcgi":
+            obj = payload.get("object")
+            if obj == "areas":
+                self._send_json(200, {"areas": [{"id": 1, "name": "Recepção Central"}]})
+            elif obj == "portals":
+                self._send_json(200, {"portals": [{"id": 1, "name": "Catraca Entrada"}]})
+            else:
+                self._send_json(200, {})
+            return
+
+        if path == "/get_configuration.fcgi":
+            self._send_json(200, {
+                "general": {"device_name": "iDFace Portaria Social"},
+                "system": {"name": "iDFace Portaria Social"}
+            })
+            return
+
         self.send_response(404)
         self.end_headers()
 

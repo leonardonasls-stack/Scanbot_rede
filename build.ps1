@@ -13,6 +13,12 @@ python -m pip install -r requirements.txt
 Write-Host "[2/4] Executando suíte de testes..." -ForegroundColor Yellow
 python -m unittest discover -s tests -p "test_*.py"
 
+# Embute o cliente desktop do Flet no .exe. Sem isso, o app baixa o cliente do GitHub
+# na primeira execução e falha em redes com inspeção SSL (CERTIFICATE_VERIFY_FAILED).
+Write-Host "      Empacotando cliente desktop do Flet (offline)..." -ForegroundColor Yellow
+python tools\bundle_flet_client.py "build\flet_client\flet-windows.zip"
+if ($LASTEXITCODE -ne 0) { throw "Falha ao empacotar o cliente Flet." }
+
 # Executa o PyInstaller (version_info.txt define o fornecedor LLSystem nos metadados)
 Write-Host "[3/4] Gerando executável único (.exe) com PyInstaller..." -ForegroundColor Yellow
 python -m PyInstaller --noconfirm --onefile --windowed `
@@ -24,6 +30,7 @@ python -m PyInstaller --noconfirm --onefile --windowed `
     --collect-all "flet_desktop" `
     --collect-all "reportlab" `
     --hidden-import "httpx" `
+    --add-data "build\flet_client\flet-windows.zip;flet_desktop\app" `
     main.py
 
 # Assina digitalmente o executável para o Windows exibir "Fornecedor: LLSystem"

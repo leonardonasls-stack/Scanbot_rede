@@ -11,6 +11,7 @@ class ControlIdDevice:
     serial_number: str = "N/D"
     model: str = "Control iD (Genérico)"
     firmware_version: str = "N/D"
+    area: str = "N/D"
     response_time_ms: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
 

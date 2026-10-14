@@ -13,6 +13,7 @@ ENDPOINT_SECONDARY = "/api/system/information"
 ENDPOINT_LOGIN = "/login.fcgi"
 ENDPOINT_LOGOUT = "/logout.fcgi"
 ENDPOINT_CONFIG = "/get_configuration.fcgi"
+ENDPOINT_LOAD_OBJECTS = "/load_objects.fcgi"
 
 # Padrões conhecidos de modelos de hardware Control iD (ordem de especificidade decrescente)
 KNOWN_PATTERNS = [
@@ -129,6 +130,50 @@ def _extract_firmware(data: Dict[str, Any]) -> str:
         val = data.get(key)
         if val is not None and str(val).strip():
             return str(val).strip()
+    return "N/D"
+
+
+def _extract_area_info(device_data: Dict[str, Any]) -> str:
+    """
+    Extrai a área e/ou localização configurada para o equipamento.
+    Prioriza objetos de áreas/portais retornados pelo load_objects.fcgi
+    e faz fallback para configurações de device_name/location.
+    """
+    if not device_data:
+        return "N/D"
+
+    # 1. Se capturou dados estruturados de áreas e portais via load_objects
+    area_names = device_data.get("_area_names", [])
+    portal_names = device_data.get("_portal_names", [])
+
+    if area_names and portal_names:
+        return f"{', '.join(area_names)} ({', '.join(portal_names)})"
+    elif area_names:
+        return ", ".join(area_names)
+    elif portal_names:
+        return f"Portal: {', '.join(portal_names)}"
+
+    # 2. Busca em device_name das configurações gerais (_config)
+    cfg = device_data.get("_config", {})
+    if isinstance(cfg, dict):
+        gen = cfg.get("general", {})
+        if isinstance(gen, dict):
+            dev_name = gen.get("device_name")
+            if dev_name and str(dev_name).strip() and str(dev_name).lower() not in GENERIC_WORDS:
+                return str(dev_name).strip()
+
+        sys_cfg = cfg.get("system", {})
+        if isinstance(sys_cfg, dict):
+            dev_name = sys_cfg.get("name")
+            if dev_name and str(dev_name).strip() and str(dev_name).lower() not in GENERIC_WORDS:
+                return str(dev_name).strip()
+
+    # 3. Busca campos diretos de localização ou nome no payload
+    for key in ("area", "area_name", "location", "device_name", "portal_name"):
+        val = device_data.get(key)
+        if val is not None and str(val).strip() and str(val).lower() not in GENERIC_WORDS:
+            return str(val).strip()
+
     return "N/D"
 
 
@@ -328,9 +373,9 @@ async def probe_control_id(
     # 6. Autenticação e extração avançada de metadados
     serial = _extract_serial(device_data) if device_data else None
     current_model = _extract_model(device_data or {}, html_sources)
-    needs_auth = (not serial or serial == "N/D" or current_model == "Control iD (Genérico)")
+    has_credentials = bool(username or password)
 
-    if needs_auth and (username or password):
+    if has_credentials:
         auth_attempted = True
         session = await login_control_id(
             client=client,
@@ -375,7 +420,33 @@ async def probe_control_id(
                 except Exception:
                     pass
 
-                # 6c. Consulta página inicial autenticada (dashboard do dispositivo)
+                # 6c. Consulta objetos de Áreas e Portais vinculados via /load_objects.fcgi
+                try:
+                    load_url = f"{base_url}{ENDPOINT_LOAD_OBJECTS}?session={session}"
+                    
+                    # Carrega as áreas cadastradas
+                    resp_areas = await client.post(load_url, json={"object": "areas"}, timeout=timeout_sec)
+                    if resp_areas.status_code == 200:
+                        areas_json = resp_areas.json()
+                        if isinstance(areas_json, dict) and "areas" in areas_json:
+                            area_list = areas_json.get("areas", [])
+                            names = [a.get("name") for a in area_list if isinstance(a, dict) and a.get("name")]
+                            if names and device_data is not None:
+                                device_data["_area_names"] = names
+
+                    # Carrega os portais vinculados
+                    resp_portals = await client.post(load_url, json={"object": "portals"}, timeout=timeout_sec)
+                    if resp_portals.status_code == 200:
+                        portals_json = resp_portals.json()
+                        if isinstance(portals_json, dict) and "portals" in portals_json:
+                            portal_list = portals_json.get("portals", [])
+                            p_names = [p.get("name") for p in portal_list if isinstance(p, dict) and p.get("name")]
+                            if p_names and device_data is not None:
+                                device_data["_portal_names"] = p_names
+                except Exception:
+                    pass
+
+                # 6d. Consulta página inicial autenticada (dashboard do dispositivo)
                 try:
                     resp_auth_html = await client.get(f"{base_url}/?session={session}", timeout=timeout_sec)
                     if resp_auth_html.status_code == 200 and resp_auth_html.text:
@@ -398,6 +469,7 @@ async def probe_control_id(
     # Extrai modelo final com todas as fontes combinadas
     model = _extract_model(device_data or {}, html_sources)
     firmware = _extract_firmware(device_data or {})
+    area = _extract_area_info(device_data or {})
 
     # Resolução de MAC: Win32 SendARP tem prioridade absoluta
     mac = get_mac_for_ip(ip)
@@ -412,5 +484,6 @@ async def probe_control_id(
         serial_number=serial,
         model=model,
         firmware_version=firmware,
+        area=area,
         response_time_ms=elapsed_ms
     )

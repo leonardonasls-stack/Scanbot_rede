@@ -32,6 +32,7 @@ class DeviceTable(ft.Container):
                 ft.DataColumn(ft.Text("ENDEREÇO MAC", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
                 ft.DataColumn(ft.Text("NÚMERO DE SÉRIE", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
                 ft.DataColumn(ft.Text("MODELO", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
+                ft.DataColumn(ft.Text("ÁREA / LOCAL", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
                 ft.DataColumn(ft.Text("FIRMWARE", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
                 ft.DataColumn(ft.Text("LATÊNCIA", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
             ],
@@ -122,6 +123,14 @@ class DeviceTable(ft.Container):
             font_family="Consolas, monospace"
         )
 
+        # Célula de Área / Local
+        area_cell = ft.Text(
+            device.area,
+            size=12,
+            weight=ft.FontWeight.W_500,
+            color="#E2E8F0" if device.area != "N/D" else COLOR_TEXT_MUTED
+        )
+
         # Célula de Firmware
         fw_cell = ft.Text(
             device.firmware_version,
@@ -142,6 +151,7 @@ class DeviceTable(ft.Container):
                 ft.DataCell(mac_cell),
                 ft.DataCell(serial_cell),
                 ft.DataCell(model_badge),
+                ft.DataCell(area_cell),
                 ft.DataCell(fw_cell),
                 ft.DataCell(lat_cell),
             ]
