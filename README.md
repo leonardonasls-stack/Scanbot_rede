@@ -155,9 +155,9 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 O script executa três etapas:
 1. Instala/verifica as dependências.
 2. Roda a suíte de testes.
-3. Gera o executável com PyInstaller (`--onedir --windowed`).
+3. Gera o executável único com PyInstaller (`--onefile --windowed`).
 
-Saída: `dist/SCAN-BOT-Rede/SCAN-BOT-Rede.exe`
+Saída: `dist/SCAN-BOT-Rede.exe`
 
 ---
 

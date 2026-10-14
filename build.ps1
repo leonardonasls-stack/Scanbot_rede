@@ -14,16 +14,17 @@ Write-Host "[2/3] Executando suíte de testes..." -ForegroundColor Yellow
 python -m unittest discover -s tests -p "test_*.py"
 
 # Executa o PyInstaller
-Write-Host "[3/3] Gerando executável com PyInstaller..." -ForegroundColor Yellow
-python -m PyInstaller --noconfirm --onedir --windowed `
+Write-Host "[3/3] Gerando executável único (.exe) com PyInstaller..." -ForegroundColor Yellow
+python -m PyInstaller --noconfirm --onefile --windowed `
     --name "SCAN-BOT-Rede" `
     --add-data "backend;backend" `
     --add-data "frontend;frontend" `
+    --collect-all "flet" `
+    --collect-all "flet_desktop" `
+    --collect-all "reportlab" `
     --hidden-import "httpx" `
-    --hidden-import "reportlab" `
-    --hidden-import "flet" `
     main.py
 
 Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "  Sucesso! Executável gerado na pasta dist/SCAN-BOT-Rede/  " -ForegroundColor Green
+Write-Host "  Sucesso! Executável único gerado: dist/SCAN-BOT-Rede.exe " -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
