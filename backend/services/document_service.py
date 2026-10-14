@@ -1,0 +1,268 @@
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    HRFlowable
+)
+
+from backend.models.device import ScanSummary, DocumentMetadata
+from backend.services.report_service import get_reports_dir, generate_filename
+
+
+def generate_internal_document_pdf(
+    summary: ScanSummary,
+    metadata: DocumentMetadata,
+    file_path: Optional[str] = None
+) -> str:
+    """
+    Gera um documento em PDF formatado para uso interno técnico.
+    Contém os dados manuais do cliente/cabeçalho e a listagem de todos os equipamentos
+    (incluindo todos os iDFaces e outros dispositivos Control iD encontrados).
+    Retorna o caminho absoluto do arquivo PDF gerado.
+    """
+    reports_dir = get_reports_dir()
+    if not file_path:
+        safe_client = "".join(c for c in metadata.cliente if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
+        prefix = f"documento_interno_{safe_client}" if safe_client else "documento_interno"
+        filename = generate_filename(prefix, "pdf")
+        target_path = reports_dir / filename
+    else:
+        target_path = Path(file_path)
+
+    doc = SimpleDocTemplate(
+        str(target_path.resolve()),
+        pagesize=A4,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36
+    )
+
+    styles = getSampleStyleSheet()
+
+    # Estilos customizados
+    title_style = ParagraphStyle(
+        "DocTitle",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor("#0F172A"),
+        spaceAfter=4
+    )
+
+    subtitle_style = ParagraphStyle(
+        "DocSubtitle",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=11,
+        leading=14,
+        textColor=colors.HexColor("#2563EB"),
+        spaceAfter=12
+    )
+
+    label_style = ParagraphStyle(
+        "LabelStyle",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor("#334155")
+    )
+
+    val_style = ParagraphStyle(
+        "ValStyle",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor("#0F172A")
+    )
+
+    table_header_style = ParagraphStyle(
+        "TableHeader",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=9,
+        leading=11,
+        textColor=colors.white,
+        alignment=1  # Centralizado
+    )
+
+    table_cell_style = ParagraphStyle(
+        "TableCell",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#1E293B")
+    )
+
+    table_cell_mono = ParagraphStyle(
+        "TableCellMono",
+        parent=styles["Normal"],
+        fontName="Courier",
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#0F172A")
+    )
+
+    elements = []
+
+    # 1. Cabeçalho Principal
+    elements.append(Paragraph("RELATÓRIO TÉCNICO DE EQUIPAMENTOS", title_style))
+    elements.append(Paragraph("CONTROLE E INVENTÁRIO TÉCNICO — USO INTERNO", subtitle_style))
+    elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#2563EB"), spaceAfter=14))
+
+    # 2. Informações do Cabeçalho / Dados do Cliente e Técnico
+    header_info_data = [
+        [
+            Paragraph("<b>CLIENTE:</b>", label_style),
+            Paragraph(metadata.cliente or "Não informado", val_style),
+            Paragraph("<b>DATA/HORA:</b>", label_style),
+            Paragraph(metadata.data_emissao.strftime("%d/%m/%Y %H:%M:%S"), val_style),
+        ],
+        [
+            Paragraph("<b>ENDEREÇO:</b>", label_style),
+            Paragraph(metadata.endereco_completo, val_style),
+            Paragraph("<b>SUB-REDE:</b>", label_style),
+            Paragraph(summary.network_target or "N/D", val_style),
+        ],
+        [
+            Paragraph("<b>TÉCNICO:</b>", label_style),
+            Paragraph(metadata.tecnico or "Não informado", val_style),
+            Paragraph("<b>TOTAL ATIVOS:</b>", label_style),
+            Paragraph(f"<b>{len(summary.devices)} equipamento(s)</b>", val_style),
+        ],
+        [
+            Paragraph("<b>LOCAL DO EQUIP.:</b>", label_style),
+            Paragraph(metadata.local_equipamento or "Geral", val_style),
+            Paragraph("<b>DURAÇÃO SCAN:</b>", label_style),
+            Paragraph(f"{summary.duration_seconds:.1f} segundos", val_style),
+        ]
+    ]
+
+    header_table = Table(header_info_data, colWidths=[100, 220, 80, 122])
+    header_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
+        ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#CBD5E1")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(header_table)
+    elements.append(Spacer(1, 16))
+
+    # 3. Estatísticas / Contadores dos Modelos
+    idface_count = sum(1 for d in summary.devices if "face" in d.model.lower())
+    idclass_count = sum(1 for d in summary.devices if "class" in d.model.lower())
+    outros_count = len(summary.devices) - (idface_count + idclass_count)
+
+    kpi_data = [
+        [
+            Paragraph("<b>TOTAL GERAL</b>", table_header_style),
+            Paragraph("<b>iDFACES</b>", table_header_style),
+            Paragraph("<b>iDCLASS / REPs</b>", table_header_style),
+            Paragraph("<b>OUTROS EQUIPAMENTOS</b>", table_header_style),
+        ],
+        [
+            Paragraph(f"<font size=12><b>{len(summary.devices)}</b></font>", ParagraphStyle("C1", parent=styles["Normal"], alignment=1, textColor=colors.HexColor("#065F46"))),
+            Paragraph(f"<font size=12><b>{idface_count}</b></font>", ParagraphStyle("C2", parent=styles["Normal"], alignment=1, textColor=colors.HexColor("#1E40AF"))),
+            Paragraph(f"<font size=12><b>{idclass_count}</b></font>", ParagraphStyle("C3", parent=styles["Normal"], alignment=1, textColor=colors.HexColor("#6B21A8"))),
+            Paragraph(f"<font size=12><b>{outros_count}</b></font>", ParagraphStyle("C4", parent=styles["Normal"], alignment=1, textColor=colors.HexColor("#334155"))),
+        ]
+    ]
+
+    kpi_table = Table(kpi_data, colWidths=[130, 130, 130, 132])
+    kpi_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E293B")),
+        ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#F1F5F9")),
+        ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#94A3B8")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(kpi_table)
+    elements.append(Spacer(1, 16))
+
+    # 4. Tabela com todos os Equipamentos (iDFaces e outros)
+    elements.append(Paragraph("<b>RELAÇÃO DETALHADA DE EQUIPAMENTOS IDENTIFICADOS</b>", label_style))
+    elements.append(Spacer(1, 6))
+
+    table_data = [
+        [
+            Paragraph("ITEM", table_header_style),
+            Paragraph("IP LOCAL", table_header_style),
+            Paragraph("ENDEREÇO MAC", table_header_style),
+            Paragraph("NÚMERO DE SÉRIE", table_header_style),
+            Paragraph("MODELO", table_header_style),
+            Paragraph("FIRMWARE", table_header_style),
+        ]
+    ]
+
+    if not summary.devices:
+        table_data.append([
+            Paragraph("-", table_cell_style),
+            Paragraph("Nenhum equipamento localizado na varredura", table_cell_style),
+            Paragraph("-", table_cell_style),
+            Paragraph("-", table_cell_style),
+            Paragraph("-", table_cell_style),
+            Paragraph("-", table_cell_style),
+        ])
+    else:
+        for idx, dev in enumerate(summary.devices, start=1):
+            is_idface = "face" in dev.model.lower()
+            model_display = f"<b>{dev.model}</b>" if is_idface else dev.model
+
+            table_data.append([
+                Paragraph(str(idx), table_cell_style),
+                Paragraph(dev.ip, table_cell_mono),
+                Paragraph(dev.mac, table_cell_mono),
+                Paragraph(dev.serial_number, table_cell_mono),
+                Paragraph(model_display, table_cell_style),
+                Paragraph(dev.firmware_version, table_cell_style),
+            ])
+
+    devices_table = Table(table_data, colWidths=[36, 95, 115, 125, 95, 56])
+    t_style = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+        ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#475569")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]
+
+    # Zebrado nas linhas
+    for i in range(1, len(table_data)):
+        if i % 2 == 0:
+            t_style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#F8FAFC")))
+
+    devices_table.setStyle(TableStyle(t_style))
+    elements.append(devices_table)
+
+    # 5. Rodapé Informativo (Uso Interno)
+    elements.append(Spacer(1, 24))
+    elements.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#CBD5E1"), spaceAfter=8))
+    footer_text = (
+        "<i>Documento emitido automaticamente pelo SCAN BOT Rede. "
+        "Uso estritamente interno para inventário técnico, conferência e manutenção de ativos. "
+        "Não requer assinatura de terceiros.</i>"
+    )
+    elements.append(Paragraph(footer_text, ParagraphStyle("Footer", parent=styles["Normal"], fontSize=8, leading=10, textColor=colors.HexColor("#64748B"), alignment=1)))
+
+    # Constrói o PDF
+    doc.build(elements)
+    return str(target_path.resolve())
