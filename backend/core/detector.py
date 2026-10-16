@@ -14,6 +14,7 @@ ENDPOINT_LOGIN = "/login.fcgi"
 ENDPOINT_LOGOUT = "/logout.fcgi"
 ENDPOINT_CONFIG = "/get_configuration.fcgi"
 ENDPOINT_LOAD_OBJECTS = "/load_objects.fcgi"
+ENDPOINT_CATRA_INFO = "/get_catra_info.fcgi"
 
 # Padrões conhecidos de modelos de hardware Control iD (ordem de especificidade decrescente)
 KNOWN_PATTERNS = [
@@ -66,6 +67,8 @@ def _extract_model(data: Dict[str, Any], html_content: Optional[Union[str, List[
     elif isinstance(html_content, list):
         html_sources.extend([s for s in html_content if isinstance(s, str)])
 
+    candidate_model: Optional[str] = None
+
     # 1. Campos diretos no dicionário de dados (ex: 'model', 'device_model', 'product_name')
     for key in ("model", "device_model", "modelName", "product", "product_name", "device_name", "equipment_type", "equipment", "name"):
         val = data.get(key)
@@ -74,54 +77,105 @@ def _extract_model(data: Dict[str, Any], html_content: Optional[Union[str, List[
             # Confere se corresponde a algum padrão de modelo conhecido
             for pat, canonical in KNOWN_PATTERNS:
                 if re.search(pat, str_val, re.IGNORECASE):
-                    return canonical
+                    candidate_model = canonical
+                    break
+            if candidate_model:
+                break
             if str_val.lower() not in GENERIC_WORDS:
-                return str_val
+                candidate_model = str_val
+                break
 
     # 2. Inspeciona o bloco de licença ou biometria retornado em system_information.fcgi
-    license_data = data.get("license")
-    if isinstance(license_data, dict):
-        lic_str = json.dumps(license_data).lower()
-        if any(w in lic_str for w in ("facial", "face", "faces")):
-            return "iDFace"
-        if any(w in lic_str for w in ("rep", "afd", "mrp")):
-            return "iDClass"
-        if any(w in lic_str for w in ("catraca", "turnstile")):
-            return "iDBlock"
+    if not candidate_model:
+        license_data = data.get("license")
+        if isinstance(license_data, dict):
+            lic_str = json.dumps(license_data).lower()
+            if any(w in lic_str for w in ("facial", "face", "faces")):
+                candidate_model = "iDFace"
+            elif any(w in lic_str for w in ("rep", "afd", "mrp")):
+                candidate_model = "iDClass"
+            elif any(w in lic_str for w in ("catraca", "turnstile")):
+                candidate_model = "iDBlock"
 
     # 3. Inspeciona todas as páginas e fragmentos HTML coletados
-    for html in html_sources:
-        if not html:
-            continue
+    if not candidate_model:
+        for html in html_sources:
+            if not html:
+                continue
 
-        # 3a. Prioridade: Título da página <title>
-        title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE)
-        if title_match:
-            title_text = title_match.group(1).strip()
-            for pat, canonical in KNOWN_PATTERNS:
-                if re.search(pat, title_text, re.IGNORECASE):
-                    return canonical
-
-            cleaned = re.sub(r"(?i)control\s*i?d\s*[-–—:]*\s*", "", title_text).strip()
-            if cleaned.lower() not in GENERIC_WORDS and len(cleaned) >= 3:
+            # 3a. Prioridade: Título da página <title>
+            title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE)
+            if title_match:
+                title_text = title_match.group(1).strip()
                 for pat, canonical in KNOWN_PATTERNS:
-                    if re.search(pat, cleaned, re.IGNORECASE):
-                        return canonical
-                return cleaned
+                    if re.search(pat, title_text, re.IGNORECASE):
+                        candidate_model = canonical
+                        break
+                if candidate_model:
+                    break
 
-        # 3b. Varredura completa do corpo do HTML (cabeçalhos, scripts, logos e tags)
-        for pat, canonical in KNOWN_PATTERNS:
-            if re.search(pat, html, re.IGNORECASE):
-                return canonical
+                cleaned = re.sub(r"(?i)control\s*i?d\s*[-–—:]*\s*", "", title_text).strip()
+                if cleaned.lower() not in GENERIC_WORDS and len(cleaned) >= 3:
+                    for pat, canonical in KNOWN_PATTERNS:
+                        if re.search(pat, cleaned, re.IGNORECASE):
+                            candidate_model = canonical
+                            break
+                    if candidate_model:
+                        break
+                    candidate_model = cleaned
+                    break
+
+            # 3b. Varredura completa do corpo do HTML (cabeçalhos, scripts, logos e tags)
+            for pat, canonical in KNOWN_PATTERNS:
+                if re.search(pat, html, re.IGNORECASE):
+                    candidate_model = canonical
+                    break
+            if candidate_model:
+                break
 
     # 4. Inspeciona payload JSON completo (incluindo objetos aninhados de configuração)
-    if data:
+    if not candidate_model and data:
         full_json_str = json.dumps(data)
         for pat, canonical in KNOWN_PATTERNS:
             if re.search(pat, full_json_str, re.IGNORECASE):
-                return canonical
+                candidate_model = canonical
+                break
 
-    return "Control iD (Genérico)"
+    if not candidate_model:
+        candidate_model = "Control iD (Genérico)"
+
+    # 5. Refinamento de Catraca Facial (iDBlock Facial):
+    # Se o modelo base for da família iDFace ou Control iD genérico, mas houver indícios de catraca
+    # (parâmetros de giro 'catra', 'turnstile', 'get_catra_info' ou portas/portais de catraca)
+    is_face = "idface" in candidate_model.lower() or "facial" in candidate_model.lower()
+    has_catra_evidence = False
+
+    if data:
+        if data.get("_is_catra") is True:
+            has_catra_evidence = True
+        else:
+            cfg = data.get("_config")
+            if isinstance(cfg, dict):
+                catra_cfg = cfg.get("catra")
+                if isinstance(catra_cfg, dict) and any(catra_cfg.get(k) is not None for k in ("gateway", "anti_passback", "daily_reset")):
+                    has_catra_evidence = True
+            
+            # Checa se nas configurações ou no nome do dispositivo há menção explícita de catraca/idblock
+            dev_name = str(data.get("device_name") or data.get("name") or "")
+            if any(w in dev_name.lower() for w in ("catraca", "turnstile", "idblock")):
+                has_catra_evidence = True
+
+    if has_catra_evidence:
+        if is_face:
+            if "max" in candidate_model.lower():
+                return "iDFace Max (iDBlock Facial)"
+            elif "pro" in candidate_model.lower():
+                return "iDFace Pro (iDBlock Facial)"
+            return "iDFace (iDBlock Facial)"
+        elif candidate_model == "Control iD (Genérico)":
+            return "iDBlock"
+
+    return candidate_model
 
 
 def _extract_firmware(data: Dict[str, Any]) -> str:
@@ -410,13 +464,18 @@ async def probe_control_id(
                     config_url = f"{base_url}{ENDPOINT_CONFIG}?session={session}"
                     cfg_payload = {
                         "general": ["device_name", "model", "equipment_type", "product_name"],
-                        "system": ["model", "name"]
+                        "system": ["model", "name"],
+                        "catra": ["gateway", "anti_passback", "daily_reset"]
                     }
                     resp_cfg = await client.post(config_url, json=cfg_payload, timeout=timeout_sec)
                     if resp_cfg.status_code == 200:
                         cfg_data = resp_cfg.json()
                         if isinstance(cfg_data, dict) and device_data is not None:
                             device_data["_config"] = cfg_data
+                            # Se o bloco catra retornou parâmetros válidos
+                            catra_block = cfg_data.get("catra")
+                            if isinstance(catra_block, dict) and any(catra_block.get(k) is not None for k in ("gateway", "anti_passback", "daily_reset")):
+                                device_data["_is_catra"] = True
                 except Exception:
                     pass
 
@@ -446,7 +505,19 @@ async def probe_control_id(
                 except Exception:
                     pass
 
-                # 6d. Consulta página inicial autenticada (dashboard do dispositivo)
+                # 6d. Verificação de endpoint específico de catraca (/get_catra_info.fcgi)
+                try:
+                    catra_url = f"{base_url}{ENDPOINT_CATRA_INFO}?session={session}"
+                    resp_catra = await client.get(catra_url, timeout=timeout_sec)
+                    if resp_catra.status_code == 200:
+                        catra_info = resp_catra.json()
+                        if isinstance(catra_info, dict) and any(k in catra_info for k in ("total_turns", "entrance_turns", "exit_turns", "left_turns", "right_turns")):
+                            if device_data is not None:
+                                device_data["_is_catra"] = True
+                except Exception:
+                    pass
+
+                # 6e. Consulta página inicial autenticada (dashboard do dispositivo)
                 try:
                     resp_auth_html = await client.get(f"{base_url}/?session={session}", timeout=timeout_sec)
                     if resp_auth_html.status_code == 200 and resp_auth_html.text:

@@ -122,6 +122,34 @@ class TestBackend(unittest.TestCase):
         self.assertEqual(_extract_model({}, ["<title>Control iD - Login</title>"]), "Control iD (Genérico)")
         self.assertEqual(_extract_model({}, []), "Control iD (Genérico)")
 
+        # 6. Identificação de Catraca Facial (iDBlock Facial)
+        # 6a. iDFace com flag de catraca ativa (_is_catra)
+        self.assertEqual(
+            _extract_model({"_is_catra": True}, "<title>Control iD - iDFace</title>"),
+            "iDFace (iDBlock Facial)"
+        )
+        # 6b. iDFace Max com flag de catraca ativa
+        self.assertEqual(
+            _extract_model({"_is_catra": True}, "<title>iDFace Max</title>"),
+            "iDFace Max (iDBlock Facial)"
+        )
+        # 6c. iDFace com bloco 'catra' nas configurações (/get_configuration.fcgi)
+        self.assertEqual(
+            _extract_model({
+                "model": "iDFace",
+                "_config": {"catra": {"gateway": "clockwise", "anti_passback": 1}}
+            }, []),
+            "iDFace (iDBlock Facial)"
+        )
+        # 6d. iDFace com nome do dispositivo indicando catraca
+        self.assertEqual(
+            _extract_model({
+                "model": "iDFace",
+                "device_name": "Catraca Facial Entrada"
+            }, []),
+            "iDFace (iDBlock Facial)"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -146,7 +146,7 @@ Busca nos seguintes campos da resposta JSON (em ordem de precedência):
 | **Controle de Acesso Biométrico** | iDAccess, iDAccess Pro, iDAccess Nano, iDFit | 80, 443 | `/system_information.fcgi`, `/login.fcgi` |
 | **Controle de Acesso / Portas** | iDBox, iDUHF | 80 | `/system_information.fcgi` |
 | **Relógios de Ponto (REP)** | iDClass, PrintPoint III, iDClass 373 | 80, 8000 | `/system_information.fcgi`, `/login.fcgi` |
-| **Catracas Eletrônicas** | Catraca iDBlock, Catraca Revolution | 80 | `/system_information.fcgi` |
+| **Catracas Eletrônicas** | Catraca iDBlock, iDBlock Facial (iDFace em Catraca), Catraca Revolution | 80 | `/system_information.fcgi`, `/get_catra_info.fcgi`, `/get_configuration.fcgi` |
 
 ---
 
