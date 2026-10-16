@@ -3,35 +3,48 @@ import re
 from backend.models.device import ControlIdDevice
 
 
-def _extract_canonical_portal_name(area_str: str) -> Optional[str]:
+def _extract_turnstile_portal_name(area_str: str) -> Optional[str]:
     """
-    Extrai o nome canônico do portal a partir da string de área/local do equipamento.
-    Exemplos:
+    Extrai o nome do portal pertencente especificamente a uma catraca iDBlock.
+    Exemplo:
       'Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE ((Entrada) ENTRADA TRANSPORTE, (Saída) EXTERNA)'
       -> 'ENTRADA TRANSPORTE'
-      'Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE (Portal)'
-      -> busca termos como 'ENTRADA TRANSPORTE' ou 'ENTRADA PORTÃO'
+      'Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE ((Entrada) ENTRADA PORTÃO, (Saída) EXTERNA)'
+      -> 'ENTRADA PORTÃO'
     """
     if not area_str or area_str == "N/D":
         return None
 
-    # 1. Procura padrão explícito de portal de catraca: ((Entrada) PORTAL, (Saída) AREA)
-    match_turnstile = re.search(r"\(\(Entrada\)\s*([^,)]+)", area_str, re.IGNORECASE)
-    if match_turnstile:
-        return match_turnstile.group(1).strip()
+    # Catracas possuem o padrão ((Entrada) <PORTAL>, (Saída) <AREA>)
+    match = re.search(r"\(\(Entrada\)\s*([^,)]+)", area_str, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return None
 
-    # 2. Procura padrão de TO: PORTAL ou Portal: PORTAL
-    match_portal = re.search(r"\((?:TO:\s*|Portal:\s*|Portal)?\s*([^,()]+)\)", area_str, re.IGNORECASE)
-    if match_portal:
-        cand = match_portal.group(1).strip()
+
+def _extract_reader_portal_name(area_str: str) -> Optional[str]:
+    """
+    Extrai o portal para onde o leitor facial aponta.
+    Exemplos:
+      'Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE (Portal)'
+      -> O portal do leitor é a última área antes de '(Portal)', ou seja, 'ENTRADA TRANSPORTE'
+      'Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE (TO: ENTRADA PORTÃO)'
+      -> 'ENTRADA PORTÃO'
+    """
+    if not area_str or area_str == "N/D":
+        return None
+
+    # Caso TO: ou Portal: explícito
+    match_to = re.search(r"\((?:TO:\s*|Portal:\s*)([^)]+)\)", area_str, re.IGNORECASE)
+    if match_to:
+        cand = match_to.group(1).strip()
         if cand.lower() not in ("portal", "n/d", ""):
             return cand
 
-    # 3. Termos comuns de portais
-    for token in area_str.split(","):
-        cleaned = re.sub(r"\(.*?\)", "", token).strip()
-        if any(w in cleaned.upper() for w in ("PORTÃO", "PORTAO", "TRANSPORTE", "CATRACA", "ENTRADA", "SAÍDA", "SAIDA", "RECEPCAO", "RECEPÇÃO")):
-            return cleaned
+    # Caso '..., NOME_PORTAL (Portal)'
+    match_portal = re.search(r",\s*([^,()]+)\s*\(Portal\)", area_str, re.IGNORECASE)
+    if match_portal:
+        return match_portal.group(1).strip()
 
     return None
 
@@ -66,7 +79,7 @@ def link_turnstiles_and_readers(devices: List[ControlIdDevice]) -> List[Tuple[Co
     turnstile_children: Dict[str, List[ControlIdDevice]] = {t.ip: [] for t in turnstiles}
 
     for t in turnstiles:
-        portal = _extract_canonical_portal_name(t.area)
+        portal = _extract_turnstile_portal_name(t.area)
         if portal:
             turnstile_by_portal[portal.upper()] = t
 
@@ -77,23 +90,23 @@ def link_turnstiles_and_readers(devices: List[ControlIdDevice]) -> List[Tuple[Co
         o_area_upper = (o.area or "").upper()
         matched_turnstile: Optional[ControlIdDevice] = None
 
-        # 1. Checa por correspondência exata do portal canônico
-        o_portal = _extract_canonical_portal_name(o.area)
-        if o_portal and o_portal.upper() in turnstile_by_portal:
-            matched_turnstile = turnstile_by_portal[o_portal.upper()]
+        # 1. Checa pelo portal extraído do leitor facial
+        r_portal = _extract_reader_portal_name(o.area)
+        if r_portal and r_portal.upper() in turnstile_by_portal:
+            matched_turnstile = turnstile_by_portal[r_portal.upper()]
 
-        # 2. Checa se o nome do portal da catraca está contido na área do leitor
+        # 2. Se não casou via regex específico, confere se o portal da catraca é o foco do leitor
         if not matched_turnstile:
             for p_name, t in turnstile_by_portal.items():
-                if len(p_name) >= 4 and p_name in o_area_upper:
+                if f"({p_name})" in o_area_upper or f"TO: {p_name}" in o_area_upper or f"{p_name} (PORTAL)" in o_area_upper:
                     matched_turnstile = t
                     break
 
         if matched_turnstile:
             o.parent_turnstile_ip = matched_turnstile.ip
-            if any(w in o_area_upper for w in ("ENTRADA", "IN", "ENTR")):
+            if any(w in o_area_upper for w in ("(ENTRADA)", "TO: ENTRADA", "ENTRADA TRANSPORTE (PORTAL)", "ENTRADA PORTÃO (PORTAL)")):
                 o.role = "reader_entry"
-            elif any(w in o_area_upper for w in ("SAIDA", "SAÍDA", "OUT", "EXIT")):
+            elif any(w in o_area_upper for w in ("(SAÍDA)", "(SAIDA)", "TO: SAÍDA", "TO: SAIDA", "SAÍDA")):
                 o.role = "reader_exit"
             else:
                 o.role = "reader"
@@ -101,6 +114,12 @@ def link_turnstiles_and_readers(devices: List[ControlIdDevice]) -> List[Tuple[Co
             linked_others.add(o.ip)
         else:
             o.role = "standalone"
+
+    # Se a catraca possuir leitores faciais acoplados/vinculados, seu modelo é "iDBlock Facial"
+    for t in turnstiles:
+        has_face_readers = any("face" in child.model.lower() for child in turnstile_children.get(t.ip, []))
+        if has_face_readers:
+            t.model = "iDBlock Facial"
 
     # Monta a estrutura final
     result: List[Tuple[ControlIdDevice, List[ControlIdDevice]]] = []

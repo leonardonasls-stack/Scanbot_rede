@@ -178,6 +178,7 @@ class TestBackend(unittest.TestCase):
         self.assertEqual(len(grouped), 2)
         parent_turnstile, children = grouped[0]
         self.assertEqual(parent_turnstile.ip, "192.168.1.239")
+        self.assertEqual(parent_turnstile.model, "iDBlock Facial")
         self.assertEqual(len(children), 1)
         self.assertEqual(children[0].ip, "192.168.1.151")
         self.assertEqual(children[0].parent_turnstile_ip, "192.168.1.239")

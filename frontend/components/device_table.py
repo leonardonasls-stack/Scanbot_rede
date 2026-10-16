@@ -87,20 +87,42 @@ class DeviceTable(ft.Container):
         model_color = get_model_color(device.model)
 
         # Badge estilizado para o Modelo
-        badge_text = device.model
-        if role_label:
-            badge_text = f"{device.model} • {role_label}"
+        is_turnstile = "idblock" in device.model.lower()
+        badge_bg = "#F97316" if is_turnstile else model_color
 
-        model_badge = ft.Container(
-            content=ft.Text(
-                badge_text,
-                size=11,
-                weight=ft.FontWeight.BOLD,
-                color="#FFFFFF"
-            ),
-            bgcolor="#F97316" if "idblock" in device.model.lower() else model_color,
-            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-            border_radius=6
+        badge_controls = [
+            ft.Container(
+                content=ft.Text(
+                    device.model,
+                    size=11,
+                    weight=ft.FontWeight.BOLD,
+                    color="#FFFFFF"
+                ),
+                bgcolor=badge_bg,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                border_radius=6
+            )
+        ]
+
+        if role_label:
+            badge_controls.append(
+                ft.Container(
+                    content=ft.Text(
+                        role_label,
+                        size=10,
+                        weight=ft.FontWeight.W_600,
+                        color="#0284C7"
+                    ),
+                    bgcolor="#082F49",
+                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                    border_radius=4,
+                    border=ft.Border.all(1, "#0369A1")
+                )
+            )
+
+        model_badge = ft.Row(
+            spacing=6,
+            controls=badge_controls
         )
 
         # Célula de IP com destaque e recuo se for leitor filho de catraca
