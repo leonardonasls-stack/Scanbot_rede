@@ -156,36 +156,91 @@ class TestBackend(unittest.TestCase):
             ip="192.168.1.239",
             model="iDBlock",
             serial_number="0K5210/000015",
-            area="Área Padrão, EXTERNA, ENTRADA TRANSPORTE ((Entrada) ENTRADA TRANSPORTE, (Saída) EXTERNA)"
+            area="Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE ((Entrada) ENTRADA TRANSPORTE, (Saída) EXTERNA)",
+            raw_info={"_raw_devices": [{"ip": "192.168.1.239", "name": "CATRACA TRANSPORTE"}]}
         )
-        leitor_transporte_1 = ControlIdDevice(
+        catraca_entrada_2 = ControlIdDevice(
+            ip="192.168.1.248",
+            model="iDBlock",
+            serial_number="0K5210/000011",
+            area="Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE ((Entrada) ENTRADA PORTÃO, (Saída) EXTERNA)",
+            raw_info={"_raw_devices": [{"ip": "192.168.1.248", "name": "ENTRADA 2"}]}
+        )
+        catraca_entrada_1 = ControlIdDevice(
+            ip="192.168.1.226",
+            model="Control iD (Genérico)",
+            serial_number="K82K",
+            area="Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE ((Entrada) ENTRADA PORTÃO, (Saída) EXTERNA)",
+            raw_info={"_raw_devices": [{"ip": "192.168.1.226", "name": "ENTRADA 1"}]}
+        )
+
+        leitor_transporte_in = ControlIdDevice(
             ip="192.168.1.151",
             model="iDFace",
             serial_number="0M0200/00C018",
-            area="Área Padrão, EXTERNA, ENTRADA TRANSPORTE (Portal)"
+            area="Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE (Portal)",
+            raw_info={"_raw_devices": [{"ip": "192.168.1.151", "name": "CATRACA TRANSPORTE Entrada"}]}
         )
-        leitor_porta_avulso = ControlIdDevice(
-            ip="192.168.1.99",
+        leitor_transporte_out = ControlIdDevice(
+            ip="192.168.1.233",
             model="iDFace",
-            serial_number="0M0200/999999",
-            area="Portaria Social (Porta 1)"
+            serial_number="0M0200/00230C",
+            area="Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE (Portal)",
+            raw_info={"_raw_devices": [{"ip": "192.168.1.233", "name": "CATRACA TRANSPORTE Saída"}]}
+        )
+        leitor_entrada2_in = ControlIdDevice(
+            ip="192.168.1.204",
+            model="iDFace",
+            serial_number="0M0200/00231C",
+            area="Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE (Portal)",
+            raw_info={"_raw_devices": [{"ip": "192.168.1.204", "name": "ENTRADA 2 Entrada"}]}
+        )
+        leitor_entrada2_out = ControlIdDevice(
+            ip="192.168.1.164",
+            model="iDFace",
+            serial_number="0M0200/00185D",
+            area="Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE (Portal)",
+            raw_info={"_raw_devices": [{"ip": "192.168.1.164", "name": "ENTRADA 2 Saída"}]}
+        )
+        leitor_entrada1_out = ControlIdDevice(
+            ip="192.168.1.227",
+            model="iDFace",
+            serial_number="0M0600/00B974",
+            area="Área Padrão, EXTERNA, ENTRADA PORTÃO, ENTRADA TRANSPORTE (TO: ENTRADA PORTÃO)",
+            raw_info={"_raw_devices": [{"ip": "192.168.1.227", "name": "ENTRADA 1 Saída"}]}
         )
 
-        devices = [leitor_transporte_1, catraca_transporte, leitor_porta_avulso]
+        devices = [
+            leitor_transporte_in, leitor_transporte_out,
+            catraca_transporte, catraca_entrada_2, catraca_entrada_1,
+            leitor_entrada2_in, leitor_entrada2_out, leitor_entrada1_out
+        ]
+
         grouped = link_turnstiles_and_readers(devices)
 
-        # Deve haver 2 grupos principais: a catraca (com 1 filho) e a porta avulsa (sem filhos)
-        self.assertEqual(len(grouped), 2)
-        parent_turnstile, children = grouped[0]
-        self.assertEqual(parent_turnstile.ip, "192.168.1.239")
-        self.assertEqual(parent_turnstile.model, "iDBlock Facial")
-        self.assertEqual(len(children), 1)
-        self.assertEqual(children[0].ip, "192.168.1.151")
-        self.assertEqual(children[0].parent_turnstile_ip, "192.168.1.239")
+        # Deve haver 3 catracas principais agrupadas
+        self.assertEqual(len(grouped), 3)
 
-        standalone, standalone_children = grouped[1]
-        self.assertEqual(standalone.ip, "192.168.1.99")
-        self.assertEqual(len(standalone_children), 0)
+        # 1. Catraca Transporte deve ter 2 leitores (.151 e .233)
+        t_transp = next(t for t, _ in grouped if t.ip == "192.168.1.239")
+        c_transp = next(c for t, c in grouped if t.ip == "192.168.1.239")
+        self.assertEqual(t_transp.model, "iDBlock Facial")
+        self.assertEqual(len(c_transp), 2)
+        self.assertEqual({c.ip for c in c_transp}, {"192.168.1.151", "192.168.1.233"})
+
+        # 2. Catraca Entrada 2 deve ter 2 leitores (.204 e .164)
+        t_ent2 = next(t for t, _ in grouped if t.ip == "192.168.1.248")
+        c_ent2 = next(c for t, c in grouped if t.ip == "192.168.1.248")
+        self.assertEqual(t_ent2.model, "iDBlock Facial")
+        self.assertEqual(len(c_ent2), 2)
+        self.assertEqual({c.ip for c in c_ent2}, {"192.168.1.204", "192.168.1.164"})
+
+        # 3. Catraca Entrada 1 deve ter 1 leitor (.227)
+        t_ent1 = next(t for t, _ in grouped if t.ip == "192.168.1.226")
+        c_ent1 = next(c for t, c in grouped if t.ip == "192.168.1.226")
+        self.assertEqual(t_ent1.model, "iDBlock Facial")
+        self.assertEqual(len(c_ent1), 1)
+        self.assertEqual(c_ent1[0].ip, "192.168.1.227")
 
 
 if __name__ == "__main__":
