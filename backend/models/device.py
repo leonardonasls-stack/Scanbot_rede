@@ -16,6 +16,7 @@ class ControlIdDevice:
     timestamp: datetime = field(default_factory=datetime.now)
     parent_turnstile_ip: Optional[str] = None
     role: str = "standalone"  # 'turnstile', 'reader_entry', 'reader_exit', 'standalone'
+    raw_info: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Converte a instância para dicionário serializável."""

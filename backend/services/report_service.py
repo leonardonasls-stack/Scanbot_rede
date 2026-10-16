@@ -171,6 +171,16 @@ def write_scan_log_txt(summary: ScanSummary, file_path: Optional[str] = None) ->
             lines.append(f"    Versão Firmware: {parent.firmware_version}")
             lines.append(f"    Latência / Ping: {parent.response_time_ms:.1f} ms")
 
+            # Despeja dados de diagnóstico técnico dos objetos de rede/hardware
+            raw_devs = parent.raw_info.get("_raw_devices") if parent.raw_info else None
+            raw_ports = parent.raw_info.get("_raw_portals") if parent.raw_info else None
+            if raw_devs or raw_ports:
+                lines.append("    [Diagnóstico de Objetos Control iD]")
+                if raw_devs:
+                    lines.append(f"      • Dispositivos Cadastrados (devices): {json.dumps(raw_devs, ensure_ascii=False)}")
+                if raw_ports:
+                    lines.append(f"      • Portais Vinculados (portals): {json.dumps(raw_ports, ensure_ascii=False)}")
+
             if children:
                 lines.append(f"    --- LEITORES FACIAIS VINCULADOS A ESTA CATRACA ({len(children)}) ---")
                 for c_idx, child in enumerate(children, start=1):
@@ -187,6 +197,10 @@ def write_scan_log_txt(summary: ScanSummary, file_path: Optional[str] = None) ->
                     lines.append(f"          Área / Portal  : {child.area}")
                     lines.append(f"          Versão Firmware: {child.firmware_version}")
                     lines.append(f"          Latência / Ping: {child.response_time_ms:.1f} ms")
+                    
+                    c_raw_devs = child.raw_info.get("_raw_devices") if child.raw_info else None
+                    if c_raw_devs:
+                        lines.append(f"          • Dispositivos (devices): {json.dumps(c_raw_devs, ensure_ascii=False)}")
             lines.append("-" * 80)
 
     lines.append("")

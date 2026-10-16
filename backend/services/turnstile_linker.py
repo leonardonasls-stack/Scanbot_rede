@@ -90,12 +90,36 @@ def link_turnstiles_and_readers(devices: List[ControlIdDevice]) -> List[Tuple[Co
         o_area_upper = (o.area or "").upper()
         matched_turnstile: Optional[ControlIdDevice] = None
 
-        # 1. Checa pelo portal extraído do leitor facial
-        r_portal = _extract_reader_portal_name(o.area)
-        if r_portal and r_portal.upper() in turnstile_by_portal:
-            matched_turnstile = turnstile_by_portal[r_portal.upper()]
+        # 1. Prioridade Absoluta: Vínculo por IP direto cadastrado no hardware (_raw_devices)
+        for t in turnstiles:
+            t_raw_devs = t.raw_info.get("_raw_devices", []) if t.raw_info else []
+            for rd in t_raw_devs:
+                if isinstance(rd, dict) and rd.get("ip") == o.ip:
+                    matched_turnstile = t
+                    break
+            if matched_turnstile:
+                break
 
-        # 2. Se não casou via regex específico, confere se o portal da catraca é o foco do leitor
+        # Confere também no sentido inverso: se o leitor possui a catraca listada nos seus devices
+        if not matched_turnstile:
+            o_raw_devs = o.raw_info.get("_raw_devices", []) if o.raw_info else []
+            for rd in o_raw_devs:
+                if isinstance(rd, dict):
+                    rd_ip = rd.get("ip")
+                    for t in turnstiles:
+                        if t.ip == rd_ip:
+                            matched_turnstile = t
+                            break
+                if matched_turnstile:
+                    break
+
+        # 2. Checa pelo portal extraído do leitor facial
+        if not matched_turnstile:
+            r_portal = _extract_reader_portal_name(o.area)
+            if r_portal and r_portal.upper() in turnstile_by_portal:
+                matched_turnstile = turnstile_by_portal[r_portal.upper()]
+
+        # 3. Se não casou via regex específico, confere se o portal da catraca é o foco do leitor
         if not matched_turnstile:
             for p_name, t in turnstile_by_portal.items():
                 if f"({p_name})" in o_area_upper or f"TO: {p_name}" in o_area_upper or f"{p_name} (PORTAL)" in o_area_upper:

@@ -492,8 +492,9 @@ async def probe_control_id(
                             names = [a.get("name") for a in area_list if isinstance(a, dict) and a.get("name")]
                             if names and device_data is not None:
                                 device_data["_area_names"] = names
+                                device_data["_raw_areas"] = area_list
 
-                    # Carrega os portais vinculados
+                    # Carrega os portais vinculados com detalhes
                     resp_portals = await client.post(load_url, json={"object": "portals"}, timeout=timeout_sec)
                     if resp_portals.status_code == 200:
                         portals_json = resp_portals.json()
@@ -502,6 +503,17 @@ async def probe_control_id(
                             p_names = [p.get("name") for p in portal_list if isinstance(p, dict) and p.get("name")]
                             if p_names and device_data is not None:
                                 device_data["_portal_names"] = p_names
+                                device_data["_raw_portals"] = portal_list
+
+                    # Carrega os dispositivos/terminais associados (devices)
+                    try:
+                        resp_devices = await client.post(load_url, json={"object": "devices"}, timeout=timeout_sec)
+                        if resp_devices.status_code == 200:
+                            devs_json = resp_devices.json()
+                            if isinstance(devs_json, dict) and "devices" in devs_json and device_data is not None:
+                                device_data["_raw_devices"] = devs_json.get("devices", [])
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
@@ -556,5 +568,6 @@ async def probe_control_id(
         model=model,
         firmware_version=firmware,
         area=area,
-        response_time_ms=elapsed_ms
+        response_time_ms=elapsed_ms,
+        raw_info=device_data or {}
     )
