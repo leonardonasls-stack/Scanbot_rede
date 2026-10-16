@@ -242,6 +242,87 @@ class TestBackend(unittest.TestCase):
         self.assertEqual(len(c_ent1), 1)
         self.assertEqual(c_ent1[0].ip, "192.168.1.227")
 
+    def test_adapted_turnstiles_single_reader(self):
+        """
+        Valida o cenário de catracas adaptadas (serial curto <= 6 caracteres, ex: 4 dígitos)
+        onde cada catraca aceita no máximo 1 leitor, e leitores cujas catracas estão
+        desligadas não são indevidamente agrupados em outra catraca.
+        """
+        from backend.services.turnstile_linker import link_turnstiles_and_readers
+
+        # 1. Catraca 3 (sem leitor online)
+        catraca_3 = ControlIdDevice(
+            ip="192.168.3.101",
+            model="iDBlock",
+            serial_number="K2Z5",
+            area="EXTERNA, ENTRADA PRINCIPAL, ENTRADA ESTACIONAMENTO, ENTRADA RECEPÇÃO, FLORESTA ((Entrada) ENTRADA PRINCIPAL, (Saída) EXTERNA)",
+            raw_info={"_raw_devices": [{"id": 936977, "name": "CATRACA 3", "ip": "192.168.3.101"}]}
+        )
+
+        # 2. Recepção (catraca + leitor)
+        catraca_rec = ControlIdDevice(
+            ip="192.168.3.140",
+            model="iDBlock",
+            serial_number="K209",
+            area="EXTERNA, ENTRADA PRINCIPAL, ENTRADA ESTACIONAMENTO, ENTRADA RECEPÇÃO, FLORESTA ((Entrada) ENTRADA RECEPÇÃO, (Saída) EXTERNA)",
+            raw_info={"_raw_devices": [{"id": 935721, "name": "RECEPÇÃO", "ip": "192.168.3.140"}]}
+        )
+        leitor_rec = ControlIdDevice(
+            ip="192.168.3.139",
+            model="iDFace",
+            serial_number="0M0200/002363",
+            area="EXTERNA, ENTRADA PRINCIPAL, ENTRADA ESTACIONAMENTO, ENTRADA RECEPÇÃO, FLORESTA (Portal)",
+            raw_info={"_raw_devices": [{"id": 4408801109222243, "name": "RECEPÇÃO Entrada", "ip": "192.168.3.139"}]}
+        )
+
+        # 3. Floresta 2 (catraca + leitor)
+        catraca_flor2 = ControlIdDevice(
+            ip="192.168.3.137",
+            model="iDBlock",
+            serial_number="K1ZN",
+            area="EXTERNA, ENTRADA PRINCIPAL, ENTRADA ESTACIONAMENTO, ENTRADA RECEPÇÃO, FLORESTA ((Entrada) FLORESTA, (Saída) EXTERNA)",
+            raw_info={"_raw_devices": [{"id": 935699, "name": "FLORESTA 2", "ip": "192.168.3.137"}]}
+        )
+        leitor_flor2 = ControlIdDevice(
+            ip="192.168.3.138",
+            model="iDFace",
+            serial_number="0M0200/02CE90",
+            area="EXTERNA, ENTRADA PRINCIPAL, ENTRADA ESTACIONAMENTO, ENTRADA RECEPÇÃO, FLORESTA (Portal)",
+            raw_info={"_raw_devices": [{"id": 4408801109397136, "name": "FLORESTA 2 Entrada", "ip": "192.168.3.138"}]}
+        )
+
+        # 4. Leitor da Catraca 2 (cuja catraca está desligada)
+        leitor_catraca2 = ControlIdDevice(
+            ip="192.168.3.173",
+            model="iDFace",
+            serial_number="0M0200/0240C5",
+            area="EXTERNA, ENTRADA PRINCIPAL, ENTRADA ESTACIONAMENTO, ENTRADA RECEPÇÃO, FLORESTA (Portal)",
+            raw_info={"_raw_devices": [{"id": 4408801109360837, "name": "CATRACA 2 Entrada", "ip": "192.168.3.173"}]}
+        )
+
+        devices = [catraca_3, catraca_rec, catraca_flor2, leitor_rec, leitor_flor2, leitor_catraca2]
+        grouped = link_turnstiles_and_readers(devices)
+
+        # Recepção deve ter exatamente 1 leitor (.139)
+        rec_children = next(c for t, c in grouped if t.ip == "192.168.3.140")
+        self.assertEqual(len(rec_children), 1)
+        self.assertEqual(rec_children[0].ip, "192.168.3.139")
+
+        # Floresta 2 deve ter exatamente 1 leitor (.138) e NÃO deve pegar o .173
+        flor2_children = next(c for t, c in grouped if t.ip == "192.168.3.137")
+        self.assertEqual(len(flor2_children), 1)
+        self.assertEqual(flor2_children[0].ip, "192.168.3.138")
+
+        # Catraca 3 deve ter 0 leitores
+        cat3_children = next(c for t, c in grouped if t.ip == "192.168.3.101")
+        self.assertEqual(len(cat3_children), 0)
+
+        # O leitor .173 (CATRACA 2 Entrada) deve ficar como standalone avulso
+        standalone_173 = next((t for t, c in grouped if t.ip == "192.168.3.173"), None)
+        self.assertIsNotNone(standalone_173)
+        self.assertEqual(standalone_173.role, "standalone")
+
 
 if __name__ == "__main__":
     unittest.main()
+

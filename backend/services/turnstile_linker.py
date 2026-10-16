@@ -49,6 +49,32 @@ def _extract_reader_portal_name(area_str: str) -> Optional[str]:
     return None
 
 
+def _is_adapted_turnstile(turnstile: ControlIdDevice) -> bool:
+    """
+    Identifica se a catraca é adaptada via contato seco/relé.
+    Catracas adaptadas possuem número de série curto (geralmente 4 caracteres, ex: K1ZN, K209, K2Z5),
+    enquanto catracas nativas possuem número de série longo (13 dígitos com '/', ex: 0K5210/000015).
+    """
+    sn = (turnstile.serial_number or "").strip()
+    clean_sn = sn.replace("/", "").replace("-", "")
+    return len(clean_sn) <= 6
+
+
+def _extract_base_device_name(name: str) -> str:
+    """
+    Extrai o nome base do equipamento removendo sufixos comuns de direção ou portal.
+    Exemplos:
+      'RECEPÇÃO Entrada' -> 'RECEPÇÃO'
+      'FLORESTA 2 Entrada' -> 'FLORESTA 2'
+      'CATRACA 2 Entrada' -> 'CATRACA 2'
+      'CATRACA TRANSPORTE Saída' -> 'CATRACA TRANSPORTE'
+    """
+    if not name:
+        return ""
+    cleaned = re.sub(r"\s+(?:Entrada|Sa[ií]da|In|Out|Portal)\b.*$", "", name, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
 def link_turnstiles_and_readers(devices: List[ControlIdDevice]) -> List[Tuple[ControlIdDevice, List[ControlIdDevice]]]:
     """
     Analisa a lista de equipamentos detectados e agrupa os leitores faciais
@@ -90,6 +116,17 @@ def link_turnstiles_and_readers(devices: List[ControlIdDevice]) -> List[Tuple[Co
 
     linked_others: set = set()
 
+    def can_turnstile_accept_reader(turnstile: ControlIdDevice) -> bool:
+        """
+        Verifica se a catraca ainda tem capacidade física de aceitar leitores:
+        - Catraca Adaptada (serial curto <= 6): máximo 1 leitor (adaptada com 1 único leitor físico).
+        - Catraca Nativa (serial 13 dígitos): suporta até 2 leitores (Entrada e Saída).
+        """
+        current_count = len(turnstile_children.get(turnstile.ip, []))
+        if _is_adapted_turnstile(turnstile):
+            return current_count < 1
+        return current_count < 2
+
     # Associa leitores à respectiva catraca
     for o in others:
         o_area_upper = (o.area or "").upper()
@@ -97,8 +134,8 @@ def link_turnstiles_and_readers(devices: List[ControlIdDevice]) -> List[Tuple[Co
 
         # 1. Prioridade Absoluta: Vínculo por NOME DE CADASTRO DO iDSECURE
         # No iDSecure, a catraca se chama ex: 'CATRACA TRANSPORTE' e os leitores se chamam 'CATRACA TRANSPORTE Entrada' / 'CATRACA TRANSPORTE Saída'
-        # Ou a catraca se chama 'ENTRADA 2' e os leitores se chamam 'ENTRADA 2 Entrada' / 'ENTRADA 2 Saída'
-        # Ou a catraca se chama 'ENTRADA 1' e o leitor se chama 'ENTRADA 1 Saída'
+        # Ou a catraca se chama 'FLORESTA 2' e o leitor se chama 'FLORESTA 2 Entrada'
+        # Ou a catraca se chama 'RECEPÇÃO' e o leitor se chama 'RECEPÇÃO Entrada'
         o_dev_name = ""
         o_raw_devs = o.raw_info.get("_raw_devices", []) if o.raw_info else []
         for rd in o_raw_devs:
@@ -106,24 +143,36 @@ def link_turnstiles_and_readers(devices: List[ControlIdDevice]) -> List[Tuple[Co
                 o_dev_name = str(rd.get("name") or "").strip()
                 break
 
+        o_base_name = _extract_base_device_name(o_dev_name)
+
         if o_dev_name:
             for t in turnstiles:
+                if not can_turnstile_accept_reader(t):
+                    continue
+
                 t_dev_name = ""
                 t_raw_devs = t.raw_info.get("_raw_devices", []) if t.raw_info else []
                 for rd in t_raw_devs:
                     if isinstance(rd, dict) and rd.get("ip") == t.ip:
                         t_dev_name = str(rd.get("name") or "").strip()
                         break
-                
-                if t_dev_name and len(t_dev_name) >= 3:
-                    # Ex: 'CATRACA TRANSPORTE Entrada' começa com 'CATRACA TRANSPORTE'
+
+                if t_dev_name and len(t_dev_name) >= 2:
+                    # Comparação exata de nome base (ex: 'FLORESTA 2 Entrada' base 'FLORESTA 2' == 'FLORESTA 2')
+                    if o_base_name and o_base_name.upper() == t_dev_name.upper():
+                        matched_turnstile = t
+                        break
+
+                    # Ou correspondência de prefixo se o nome do leitor iniciar com o nome da catraca
                     if o_dev_name.upper().startswith(t_dev_name.upper()):
                         matched_turnstile = t
                         break
 
-        # 2. Prioridade por IP direto cadastrado no hardware
+        # 2. Prioridade por IP direto cadastrado no hardware (apenas catracas nativas)
         if not matched_turnstile:
             for t in turnstiles:
+                if not can_turnstile_accept_reader(t):
+                    continue
                 t_raw_devs = t.raw_info.get("_raw_devices", []) if t.raw_info else []
                 for rd in t_raw_devs:
                     if isinstance(rd, dict) and rd.get("ip") == o.ip:
@@ -138,7 +187,7 @@ def link_turnstiles_and_readers(devices: List[ControlIdDevice]) -> List[Tuple[Co
                 if isinstance(rd, dict):
                     rd_ip = rd.get("ip")
                     for t in turnstiles:
-                        if t.ip == rd_ip:
+                        if t.ip == rd_ip and can_turnstile_accept_reader(t):
                             matched_turnstile = t
                             break
                 if matched_turnstile:
@@ -148,11 +197,29 @@ def link_turnstiles_and_readers(devices: List[ControlIdDevice]) -> List[Tuple[Co
         if not matched_turnstile:
             r_portal = _extract_reader_portal_name(o.area)
             if r_portal and r_portal.upper() in turnstile_by_portal:
-                matched_turnstile = turnstile_by_portal[r_portal.upper()]
+                cand_turnstile = turnstile_by_portal[r_portal.upper()]
+                # Para catracas adaptadas, só aceita se o nome base bater ou se for compatível
+                if can_turnstile_accept_reader(cand_turnstile):
+                    if not _is_adapted_turnstile(cand_turnstile):
+                        matched_turnstile = cand_turnstile
+                    else:
+                        # Se adaptada, confere se o portal ou nome tem relação com a catraca
+                        t_raw_devs = cand_turnstile.raw_info.get("_raw_devices", []) if cand_turnstile.raw_info else []
+                        t_name = ""
+                        for rd in t_raw_devs:
+                            if isinstance(rd, dict) and rd.get("ip") == cand_turnstile.ip:
+                                t_name = str(rd.get("name") or "").strip()
+                                break
+                        if not t_name or (o_base_name and (o_base_name.upper() in t_name.upper() or t_name.upper() in o_base_name.upper())):
+                            matched_turnstile = cand_turnstile
 
-        # 4. Se não casou via regex específico, confere se o portal da catraca é o foco do leitor
+        # 4. Fallback de portal: APENAS para catracas nativas (13 dígitos) com capacidade livre
+        # Em catracas adaptadas, NÃO faz fallback genérico de substrings em lista de áreas
+        # para evitar vincular leitores de catracas desligadas a outra catraca por coincidência de texto.
         if not matched_turnstile:
             for p_name, t in turnstile_by_portal.items():
+                if _is_adapted_turnstile(t) or not can_turnstile_accept_reader(t):
+                    continue
                 if f"({p_name})" in o_area_upper or f"TO: {p_name}" in o_area_upper or f"{p_name} (PORTAL)" in o_area_upper:
                     matched_turnstile = t
                     break
