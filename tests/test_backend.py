@@ -150,6 +150,42 @@ class TestBackend(unittest.TestCase):
             "iDFace (iDBlock Facial)"
         )
 
+    def test_turnstile_linker_grouping(self):
+        from backend.services.turnstile_linker import link_turnstiles_and_readers
+        catraca_transporte = ControlIdDevice(
+            ip="192.168.1.239",
+            model="iDBlock",
+            serial_number="0K5210/000015",
+            area="Área Padrão, EXTERNA, ENTRADA TRANSPORTE ((Entrada) ENTRADA TRANSPORTE, (Saída) EXTERNA)"
+        )
+        leitor_transporte_1 = ControlIdDevice(
+            ip="192.168.1.151",
+            model="iDFace",
+            serial_number="0M0200/00C018",
+            area="Área Padrão, EXTERNA, ENTRADA TRANSPORTE (Portal)"
+        )
+        leitor_porta_avulso = ControlIdDevice(
+            ip="192.168.1.99",
+            model="iDFace",
+            serial_number="0M0200/999999",
+            area="Portaria Social (Porta 1)"
+        )
+
+        devices = [leitor_transporte_1, catraca_transporte, leitor_porta_avulso]
+        grouped = link_turnstiles_and_readers(devices)
+
+        # Deve haver 2 grupos principais: a catraca (com 1 filho) e a porta avulsa (sem filhos)
+        self.assertEqual(len(grouped), 2)
+        parent_turnstile, children = grouped[0]
+        self.assertEqual(parent_turnstile.ip, "192.168.1.239")
+        self.assertEqual(len(children), 1)
+        self.assertEqual(children[0].ip, "192.168.1.151")
+        self.assertEqual(children[0].parent_turnstile_ip, "192.168.1.239")
+
+        standalone, standalone_children = grouped[1]
+        self.assertEqual(standalone.ip, "192.168.1.99")
+        self.assertEqual(len(standalone_children), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

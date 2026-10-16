@@ -1,19 +1,21 @@
-from typing import List
+from typing import List, Optional
 import flet as ft
 
 from backend.models.device import ControlIdDevice
+from backend.services.turnstile_linker import link_turnstiles_and_readers
 from frontend.styles.theme import (
     COLOR_SURFACE,
     COLOR_BORDER,
     COLOR_TEXT_PRIMARY,
     COLOR_TEXT_MUTED,
     COLOR_SUCCESS,
+    COLOR_WARNING,
     get_model_color
 )
 
 
 class DeviceTable(ft.Container):
-    """Componente de visualização em tabela dos equipamentos detectados."""
+    """Componente de visualização em tabela dos equipamentos detectados com suporte a hierarquia de catracas."""
 
     def __init__(self):
         self.devices: List[ControlIdDevice] = []
@@ -28,10 +30,10 @@ class DeviceTable(ft.Container):
             horizontal_margin=16,
             column_spacing=24,
             columns=[
-                ft.DataColumn(ft.Text("IP LOCAL", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
+                ft.DataColumn(ft.Text("EQUIPAMENTO / IP", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
                 ft.DataColumn(ft.Text("ENDEREÇO MAC", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
                 ft.DataColumn(ft.Text("NÚMERO DE SÉRIE", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
-                ft.DataColumn(ft.Text("MODELO", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
+                ft.DataColumn(ft.Text("MODELO / FUNÇÃO", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
                 ft.DataColumn(ft.Text("ÁREA / LOCAL", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
                 ft.DataColumn(ft.Text("FIRMWARE", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
                 ft.DataColumn(ft.Text("LATÊNCIA", size=12, weight=ft.FontWeight.BOLD, color=COLOR_TEXT_MUTED)),
@@ -81,30 +83,60 @@ class DeviceTable(ft.Container):
             expand=True
         )
 
-    def _create_row(self, device: ControlIdDevice) -> ft.DataRow:
+    def _create_row(self, device: ControlIdDevice, is_child: bool = False, role_label: Optional[str] = None) -> ft.DataRow:
         model_color = get_model_color(device.model)
 
         # Badge estilizado para o Modelo
+        badge_text = device.model
+        if role_label:
+            badge_text = f"{device.model} • {role_label}"
+
         model_badge = ft.Container(
             content=ft.Text(
-                device.model,
+                badge_text,
                 size=11,
                 weight=ft.FontWeight.BOLD,
                 color="#FFFFFF"
             ),
-            bgcolor=model_color,
+            bgcolor="#F97316" if "idblock" in device.model.lower() else model_color,
             padding=ft.Padding.symmetric(horizontal=8, vertical=3),
             border_radius=6
         )
 
-        # Célula de IP com destaque
-        ip_cell = ft.Text(
-            device.ip,
-            size=13,
-            weight=ft.FontWeight.BOLD,
-            color=COLOR_TEXT_PRIMARY,
-            font_family="Consolas, monospace"
-        )
+        # Célula de IP com destaque e recuo se for leitor filho de catraca
+        if is_child:
+            ip_content = ft.Row(
+                spacing=6,
+                controls=[
+                    ft.Text("   ↳", size=13, color=COLOR_TEXT_MUTED, weight=ft.FontWeight.BOLD),
+                    ft.Icon(ft.Icons.FACE_ROUNDED, size=14, color="#38BDF8"),
+                    ft.Text(
+                        device.ip,
+                        size=12,
+                        weight=ft.FontWeight.BOLD,
+                        color="#38BDF8",
+                        font_family="Consolas, monospace"
+                    )
+                ]
+            )
+            row_color = "#131E2E"
+        else:
+            is_turnstile = "idblock" in device.model.lower()
+            icon_turnstile = ft.Icon(ft.Icons.SENSOR_DOOR_ROUNDED if not is_turnstile else ft.Icons.HLS_ROUNDED, size=16, color="#F97316" if is_turnstile else "#64748B")
+            ip_content = ft.Row(
+                spacing=8,
+                controls=[
+                    icon_turnstile,
+                    ft.Text(
+                        device.ip,
+                        size=13,
+                        weight=ft.FontWeight.BOLD,
+                        color=COLOR_TEXT_PRIMARY,
+                        font_family="Consolas, monospace"
+                    )
+                ]
+            )
+            row_color = None
 
         # Célula de MAC
         mac_cell = ft.Text(
@@ -146,8 +178,9 @@ class DeviceTable(ft.Container):
         )
 
         return ft.DataRow(
+            color=row_color,
             cells=[
-                ft.DataCell(ip_cell),
+                ft.DataCell(ip_content),
                 ft.DataCell(mac_cell),
                 ft.DataCell(serial_cell),
                 ft.DataCell(model_badge),
@@ -158,9 +191,25 @@ class DeviceTable(ft.Container):
         )
 
     def add_device(self, device: ControlIdDevice):
-        """Adiciona um equipamento descoberto em tempo real à tabela."""
+        """Adiciona um equipamento descoberto em tempo real à lista interna e atualiza a exibição."""
         self.devices.append(device)
-        self.table.rows.append(self._create_row(device))
+        self.rebuild_grouped_table()
+
+    def rebuild_grouped_table(self):
+        """Reconstrói as linhas da tabela agrupando leitores faciais sob suas catracas correspondentes."""
+        self.table.rows.clear()
+        grouped = link_turnstiles_and_readers(self.devices)
+
+        for parent, children in grouped:
+            # Linha da Catraca ou Dispositivo Principal
+            self.table.rows.append(self._create_row(parent, is_child=False))
+
+            # Linhas dos Leitores Vinculados
+            for child in children:
+                role_str = "Leitor Facial (Entrada)" if child.role == "reader_entry" else (
+                    "Leitor Facial (Saída)" if child.role == "reader_exit" else "Leitor Facial Vinculado"
+                )
+                self.table.rows.append(self._create_row(child, is_child=True, role_label=role_str))
 
         if self.scroll_column.controls != [self.table]:
             self.scroll_column.controls = [self.table]

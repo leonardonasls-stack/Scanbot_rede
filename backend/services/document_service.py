@@ -200,13 +200,16 @@ def generate_internal_document_pdf(
     elements.append(Paragraph("<b>RELAÇÃO DETALHADA DE EQUIPAMENTOS IDENTIFICADOS</b>", label_style))
     elements.append(Spacer(1, 6))
 
+    from backend.services.turnstile_linker import link_turnstiles_and_readers
+    grouped_pdf = link_turnstiles_and_readers(summary.devices)
+
     table_data = [
         [
             Paragraph("ITEM", table_header_style),
             Paragraph("IP LOCAL", table_header_style),
             Paragraph("ENDEREÇO MAC", table_header_style),
             Paragraph("NÚMERO DE SÉRIE", table_header_style),
-            Paragraph("MODELO", table_header_style),
+            Paragraph("MODELO / FUNÇÃO", table_header_style),
             Paragraph("ÁREA / LOCAL", table_header_style),
             Paragraph("FIRMWARE", table_header_style),
         ]
@@ -223,21 +226,38 @@ def generate_internal_document_pdf(
             Paragraph("-", table_cell_style),
         ])
     else:
-        for idx, dev in enumerate(summary.devices, start=1):
-            is_idface = "face" in dev.model.lower()
-            model_display = f"<b>{dev.model}</b>" if is_idface else dev.model
-
+        item_counter = 1
+        for parent, children in grouped_pdf:
+            is_turnstile = "idblock" in parent.model.lower()
+            parent_model_str = f"<b>{parent.model} (Catraca)</b>" if is_turnstile else f"<b>{parent.model}</b>"
             table_data.append([
-                Paragraph(str(idx), table_cell_style),
-                Paragraph(dev.ip, table_cell_mono),
-                Paragraph(dev.mac, table_cell_mono),
-                Paragraph(dev.serial_number, table_cell_mono),
-                Paragraph(model_display, table_cell_style),
-                Paragraph(dev.area or "N/D", table_cell_style),
-                Paragraph(dev.firmware_version, table_cell_style),
+                Paragraph(str(item_counter), table_cell_style),
+                Paragraph(parent.ip, table_cell_mono),
+                Paragraph(parent.mac, table_cell_mono),
+                Paragraph(parent.serial_number, table_cell_mono),
+                Paragraph(parent_model_str, table_cell_style),
+                Paragraph(parent.area or "N/D", table_cell_style),
+                Paragraph(parent.firmware_version, table_cell_style),
             ])
+            item_counter += 1
 
-    devices_table = Table(table_data, colWidths=[28, 80, 95, 105, 80, 85, 49])
+            for child in children:
+                role_label = "↳ Leitor (Entrada)" if child.role == "reader_entry" else (
+                    "↳ Leitor (Saída)" if child.role == "reader_exit" else "↳ Leitor Vinculado"
+                )
+                child_model_str = f"<font color='#0369A1'><b>{role_label}</b></font><br/>{child.model}"
+                table_data.append([
+                    Paragraph("", table_cell_style),
+                    Paragraph(f"&nbsp;&nbsp;{child.ip}", table_cell_mono),
+                    Paragraph(child.mac, table_cell_mono),
+                    Paragraph(child.serial_number, table_cell_mono),
+                    Paragraph(child_model_str, table_cell_style),
+                    Paragraph(child.area or "N/D", table_cell_style),
+                    Paragraph(child.firmware_version, table_cell_style),
+                ])
+                item_counter += 1
+
+    devices_table = Table(table_data, colWidths=[28, 80, 95, 105, 95, 70, 49])
     t_style = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
         ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#475569")),

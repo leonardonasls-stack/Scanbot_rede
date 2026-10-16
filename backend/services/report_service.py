@@ -9,6 +9,8 @@ from typing import Optional
 
 from backend.models.device import ScanSummary
 
+from backend.services.turnstile_linker import link_turnstiles_and_readers
+
 # Diretório padrão para salvar os relatórios
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 REPORTS_DIR = BASE_DIR / "reports"
@@ -30,7 +32,7 @@ def export_to_csv(summary: ScanSummary, file_path: Optional[str] = None) -> str:
     """
     Exporta o resultado da varredura para um arquivo CSV estruturado.
     Utiliza encoding 'utf-8-sig' para compatibilidade perfeita com o Microsoft Excel.
-    Retorna o caminho absoluto do arquivo gravado.
+    Preserva o agrupamento de catracas e leitores faciais vinculados.
     """
     reports_dir = get_reports_dir()
     if not file_path:
@@ -38,6 +40,8 @@ def export_to_csv(summary: ScanSummary, file_path: Optional[str] = None) -> str:
         target_path = reports_dir / filename
     else:
         target_path = Path(file_path)
+
+    grouped = link_turnstiles_and_readers(summary.devices)
 
     with open(target_path, mode="w", newline="", encoding="utf-8-sig") as csv_file:
         writer = csv.writer(csv_file, delimiter=";")
@@ -57,31 +61,53 @@ def export_to_csv(summary: ScanSummary, file_path: Optional[str] = None) -> str:
             "Endereco MAC",
             "Numero de Serie",
             "Modelo",
+            "Funcao / Vinculo",
             "Area / Local",
             "Versao Firmware",
             "Latencia (ms)",
             "Data/Hora Descoberta"
         ])
 
-        # Linhas de Dispositivos
-        for dev in summary.devices:
+        # Linhas de Dispositivos agrupadas hierarquicamente
+        for parent, children in grouped:
+            parent_role = "Catraca Principal" if "idblock" in parent.model.lower() else "Dispositivo Standalone"
             writer.writerow([
-                dev.ip,
-                dev.mac,
-                dev.serial_number,
-                dev.model,
-                dev.area,
-                dev.firmware_version,
-                f"{dev.response_time_ms:.1f}",
-                dev.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                parent.ip,
+                parent.mac,
+                parent.serial_number,
+                parent.model,
+                parent_role,
+                parent.area,
+                parent.firmware_version,
+                f"{parent.response_time_ms:.1f}",
+                parent.timestamp.strftime("%Y-%m-%d %H:%M:%S")
             ])
+            for child in children:
+                child_role = (
+                    f"Leitor Facial (Entrada) -> Catraca {parent.ip}" if child.role == "reader_entry" else (
+                        f"Leitor Facial (Saída) -> Catraca {parent.ip}" if child.role == "reader_exit" else (
+                            f"Leitor Facial Vinculado -> Catraca {parent.ip}"
+                        )
+                    )
+                )
+                writer.writerow([
+                    f"  ↳ {child.ip}",
+                    child.mac,
+                    child.serial_number,
+                    child.model,
+                    child_role,
+                    child.area,
+                    child.firmware_version,
+                    f"{child.response_time_ms:.1f}",
+                    child.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                ])
 
     return str(target_path.resolve())
 
 
 def export_to_json(summary: ScanSummary, file_path: Optional[str] = None) -> str:
     """
-    Exporta o resultado completo em formato JSON estruturado.
+    Exporta o resultado completo em formato JSON estruturado incluindo a hierarquia de catracas.
     Retorna o caminho absoluto do arquivo gravado.
     """
     reports_dir = get_reports_dir()
@@ -90,6 +116,9 @@ def export_to_json(summary: ScanSummary, file_path: Optional[str] = None) -> str
         target_path = reports_dir / filename
     else:
         target_path = Path(file_path)
+
+    # Executa a ligação para enriquecer os atributos dos dispositivos
+    link_turnstiles_and_readers(summary.devices)
 
     with open(target_path, mode="w", encoding="utf-8") as json_file:
         json.dump(summary.to_dict(), json_file, indent=2, ensure_ascii=False)
