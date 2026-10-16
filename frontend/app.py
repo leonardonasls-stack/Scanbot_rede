@@ -6,7 +6,7 @@ import flet as ft
 from backend.models.device import ScanSummary, ControlIdDevice, DocumentMetadata
 from backend.core.network_utils import get_local_network_info, validate_cidr
 from backend.core.scanner import NetworkScanner
-from backend.services.report_service import export_to_csv, export_to_json, open_reports_folder
+from backend.services.report_service import export_to_csv, export_to_json, open_reports_folder, write_scan_log_txt
 from backend.services.document_service import generate_internal_document_pdf
 from frontend.components.header import create_header
 from frontend.components.controls import ControlsBar
@@ -106,6 +106,13 @@ def create_app_view(page: ft.Page) -> ft.Control:
         height=40
     )
 
+    btn_export_txt = ft.OutlinedButton(
+        "Exportar Log TXT",
+        icon=ft.Icons.DESCRIPTION_OUTLINED,
+        disabled=True,
+        height=40
+    )
+
     btn_open_folder = ft.OutlinedButton(
         "Abrir Pasta de Relatórios",
         icon=ft.Icons.FOLDER_OPEN_ROUNDED,
@@ -122,6 +129,7 @@ def create_app_view(page: ft.Page) -> ft.Control:
                     controls=[
                         btn_export_csv,
                         btn_export_json,
+                        btn_export_txt,
                         btn_open_folder,
                     ]
                 ),
@@ -201,8 +209,10 @@ def create_app_view(page: ft.Page) -> ft.Control:
 
         btn_export_csv.disabled = True
         btn_export_json.disabled = True
+        btn_export_txt.disabled = True
         btn_export_csv.update()
         btn_export_json.update()
+        btn_export_txt.update()
 
         state.start_time = time.perf_counter()
 
@@ -241,13 +251,21 @@ def create_app_view(page: ft.Page) -> ft.Control:
             progress_bar.value = 1.0
             progress_bar.update()
 
+            # Gera automaticamente o log textual dos resultados e coletas
+            try:
+                write_scan_log_txt(summary)
+            except Exception:
+                pass
+
             if total_found > 0:
-                status_text.value = f"Varredura concluída! {total_found} equipamento(s) catalogado(s) em {summary.duration_seconds:.1f}s."
+                status_text.value = f"Varredura concluída! {total_found} equipamento(s) catalogado(s) em {summary.duration_seconds:.1f}s. (Log TXT gerado)"
                 show_message(f"Varredura concluída com sucesso! {total_found} equipamento(s) encontrado(s).")
                 btn_export_csv.disabled = False
                 btn_export_json.disabled = False
+                btn_export_txt.disabled = False
                 btn_export_csv.update()
                 btn_export_json.update()
+                btn_export_txt.update()
             else:
                 status_text.value = f"Varredura concluída em {summary.duration_seconds:.1f}s. Nenhum equipamento encontrado."
                 device_table.set_empty_state_text(
@@ -286,6 +304,13 @@ def create_app_view(page: ft.Page) -> ft.Control:
         if state.latest_summary and state.latest_summary.devices:
             path = export_to_json(state.latest_summary)
             show_message(f"Relatório JSON gravado com sucesso em: {path}")
+        else:
+            show_message("Nenhum dado disponível para exportação.", is_error=True)
+
+    def on_export_txt(_):
+        if state.latest_summary and state.latest_summary.devices:
+            path = write_scan_log_txt(state.latest_summary)
+            show_message(f"Arquivo de log TXT gravado com sucesso em: {path}")
         else:
             show_message("Nenhum dado disponível para exportação.", is_error=True)
 
@@ -495,6 +520,7 @@ def create_app_view(page: ft.Page) -> ft.Control:
 
     btn_export_csv.on_click = on_export_csv
     btn_export_json.on_click = on_export_json
+    btn_export_txt.on_click = on_export_txt
     btn_open_folder.on_click = on_open_folder
 
     # Instancia a barra de controles com as informações puxadas da rede e opção de escrita manual

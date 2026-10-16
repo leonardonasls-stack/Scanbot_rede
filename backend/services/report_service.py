@@ -126,6 +126,79 @@ def export_to_json(summary: ScanSummary, file_path: Optional[str] = None) -> str
     return str(target_path.resolve())
 
 
+def write_scan_log_txt(summary: ScanSummary, file_path: Optional[str] = None) -> str:
+    """
+    Gera um arquivo de log textual (.txt) completo e detalhado com os resultados da varredura,
+    métricas de desempenho e coleta minuciosa de cada equipamento (incluindo hierarquia de catracas).
+    """
+    reports_dir = get_reports_dir()
+    if not file_path:
+        filename = generate_filename("log_varredura", "txt")
+        target_path = reports_dir / filename
+    else:
+        target_path = Path(file_path)
+
+    grouped = link_turnstiles_and_readers(summary.devices)
+    now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+    lines = []
+    lines.append("=" * 80)
+    lines.append(f" LOG DE AUDITORIA E COLETA DE EQUIPAMENTOS - SCAN BOT REDE")
+    lines.append("=" * 80)
+    lines.append(f"Data e Hora da Execução : {now_str}")
+    lines.append(f"Faixa de Rede Alvo      : {summary.network_target}")
+    lines.append(f"Total de IPs Varridos   : {summary.total_scanned}")
+    lines.append(f"Equipamentos Detectados : {summary.total_found}")
+    lines.append(f"Tempo Total de Varredura: {summary.duration_seconds:.2f} segundos")
+    lines.append("=" * 80)
+    lines.append("")
+    lines.append("LISTA DETALHADA DE DISPOSITIVOS E VÍNCULOS:")
+    lines.append("-" * 80)
+
+    if not summary.devices:
+        lines.append("Nenhum equipamento Control iD localizado na faixa de rede especificada.")
+    else:
+        for idx, (parent, children) in enumerate(grouped, start=1):
+            is_turnstile = "idblock" in parent.model.lower()
+            tipo = "CATRACA (iDBlock)" if is_turnstile else "DISPOSITIVO INDEPENDENTE"
+
+            lines.append(f"[{idx}] {tipo}")
+            lines.append(f"    IP Local       : {parent.ip}")
+            lines.append(f"    Endereço MAC   : {parent.mac}")
+            lines.append(f"    Número de Série: {parent.serial_number}")
+            lines.append(f"    Modelo Hardware: {parent.model}")
+            lines.append(f"    Área / Portal  : {parent.area}")
+            lines.append(f"    Versão Firmware: {parent.firmware_version}")
+            lines.append(f"    Latência / Ping: {parent.response_time_ms:.1f} ms")
+
+            if children:
+                lines.append(f"    --- LEITORES FACIAIS VINCULADOS A ESTA CATRACA ({len(children)}) ---")
+                for c_idx, child in enumerate(children, start=1):
+                    role_str = (
+                        "LEITOR FACIAL (ENTRADA)" if child.role == "reader_entry" else (
+                            "LEITOR FACIAL (SAÍDA)" if child.role == "reader_exit" else "LEITOR FACIAL VINCULADO"
+                        )
+                    )
+                    lines.append(f"      ↳ ({c_idx}) {role_str}")
+                    lines.append(f"          IP Local       : {child.ip}")
+                    lines.append(f"          Endereço MAC   : {child.mac}")
+                    lines.append(f"          Número de Série: {child.serial_number}")
+                    lines.append(f"          Modelo Hardware: {child.model}")
+                    lines.append(f"          Área / Portal  : {child.area}")
+                    lines.append(f"          Versão Firmware: {child.firmware_version}")
+                    lines.append(f"          Latência / Ping: {child.response_time_ms:.1f} ms")
+            lines.append("-" * 80)
+
+    lines.append("")
+    lines.append("Fim do arquivo de log.")
+    lines.append("=" * 80)
+
+    with open(target_path, mode="w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+    return str(target_path.resolve())
+
+
 def open_reports_folder() -> bool:
     """Abre o explorador de arquivos diretamente no diretório de relatórios."""
     reports_dir = str(get_reports_dir().resolve())

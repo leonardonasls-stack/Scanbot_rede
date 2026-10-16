@@ -2,7 +2,7 @@ import asyncio
 import os
 import unittest
 from backend.core.scanner import NetworkScanner
-from backend.services.report_service import export_to_csv, export_to_json, get_reports_dir
+from backend.services.report_service import export_to_csv, export_to_json, get_reports_dir, write_scan_log_txt
 from tests.mock_control_id_server import MockServerThread
 
 
@@ -46,9 +46,11 @@ class TestEndToEndScan(unittest.TestCase):
             # Exportação de relatórios
             csv_path = export_to_csv(summary)
             json_path = export_to_json(summary)
+            txt_path = write_scan_log_txt(summary)
 
             self.assertTrue(os.path.exists(csv_path))
             self.assertTrue(os.path.exists(json_path))
+            self.assertTrue(os.path.exists(txt_path))
 
             # Validação do conteúdo do CSV
             with open(csv_path, "r", encoding="utf-8-sig") as f:
@@ -62,6 +64,13 @@ class TestEndToEndScan(unittest.TestCase):
                 content = f.read()
                 self.assertIn('"model": "iDFace"', content)
                 self.assertIn('"serial_number": "100200300400500"', content)
+
+            # Validação do conteúdo do TXT Log
+            with open(txt_path, "r", encoding="utf-8") as f:
+                txt_content = f.read()
+                self.assertIn("LOG DE AUDITORIA E COLETA DE EQUIPAMENTOS", txt_content)
+                self.assertIn("100200300400500", txt_content)
+                self.assertIn("127.0.0.1", txt_content)
 
         asyncio.run(run_lifecycle())
 
