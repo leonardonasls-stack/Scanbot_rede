@@ -17,29 +17,39 @@ Ferramenta desktop desenvolvida em **Python** e **Flet** (Material Design 3 / Fl
 - **Modo AUTO / MANUAL:** chave *"Permitir escrever manualmente"* libera a edição livre da faixa (ex.: `10.0.0.0/24`).
 - **Alta performance assíncrona:** pool de **50 workers** (`httpx.AsyncClient` + `asyncio.Semaphore`), varrendo um bloco `/24` (254 hosts) em menos de 20 segundos.
 
-### 🧠 Identificação Inteligente
+### 🧠 Identificação Inteligente e Topologia de Hardware
 - **Sondagem em cascata** dos endpoints embarcados:
   1. `/system_information.fcgi` (GET/POST)
   2. `/api/system/information`
   3. `/login.fcgi` e página inicial `/` (assinatura HTML)
 - **Autenticação automática** (`/login.fcgi` → sessão → `/logout.fcgi`) quando o serial ou modelo estão protegidos. Credenciais configuráveis na interface (padrão `admin` / `admin`).
-- **Reconhecimento de modelo** por padrões (iDFace Max/Pro/Lite, iDClass 373/Bio/Prox, iDAccess Nano/Pro, iDFlex, iDBox, iDFit, iDBlock, iDGate, iDTouch, iDPrint, iDBio, iDLook, iDSecure).
+- **Reconhecimento avançado de modelos:**
+  - Leitores faciais: iDFace, iDFace Pro, iDFace Max.
+  - Catracas: **iDBlock**, **iDBlock Facial** e modelo específico **iDBlock PNE** (identificado por serial `0K1400` ou nomenclatura de dispositivo).
+  - Demais linhas: iDClass, iDAccess, iDFlex, iDBox, iDFit, iDGate, iDTouch, iDPrint, iDBio, iDLook, iDSecure.
+- **Topologia e Hierarquia de Catracas (`turnstile_linker`):**
+  - Associa automaticamente leitores faciais escravos à sua catraca mestre por cruzamento de portais e nomes de cadastro no iDSecure.
+  - **Identificação precisa de Direção:** detecta e rotula individualmente quem é **Entrada** e quem é **Saída** com base na palavra final do dispositivo e nos fluxos de transição (`area_to_id`).
+- **Filtragem Inteligente de Áreas:**
+  - Descarta automaticamente tabelas globais e áreas genéricas órfãs (como `"Área Padrão"`), exibindo com precisão a localização física real do dispositivo na empresa.
 - **Coleta de metadados:** IP, MAC, número de série, modelo, firmware e latência.
 - **Resolução nativa de MAC via Win32** (`iphlpapi.SendARP` via `ctypes`), sem exigir privilégios de administrador.
 - **Descarte silencioso** de hosts inalcançáveis ou que não sejam Control iD.
 
 ### 🖥️ Interface Desktop
 - Visual corporativo **Dark Mode** em Flet.
-- Streaming reativo dos resultados na tabela, com tags coloridas por modelo.
+- Agrupamento visual de catracas e leitores com recuo hierárquico (`↳`).
+- Badges modernos e diretos: **`[Entrada]`** (verde esmeralda) e **`[Saída]`** (âmbar).
 - Cards de KPI (total de equipamentos e métricas) e barra de progresso em tempo real.
 
 ### 📄 Relatórios e Documentos
-- **CSV** (separador `;`, UTF-8 BOM — abre direto no Excel) com cabeçalho de resumo.
-- **JSON** estruturado com o resumo completo da varredura.
-- **Documento Interno em PDF** (ReportLab) com:
-  - Formulário manual de cabeçalho: Cliente, Rua, Número, Bairro, Técnico Responsável e Local do Equipamento.
-  - Totalizadores por categoria (iDFaces, iDClass/REPs, Outros).
-  - Tabela detalhada de todos os equipamentos encontrados.
+- **CSV** (separador `;`, UTF-8 BOM — abre direto no Excel) com cabeçalho de resumo e detalhamento dos vínculos.
+- **JSON** estruturado com o resumo completo e metadados brutos de diagnóstico (`devices` e `portals`).
+- **Documento Técnico em PDF** (ReportLab) com:
+  - Cabeçalho personalizado: Cliente, Endereço, Bairro, Técnico Responsável e Local.
+  - Indicadores KPI por categoria.
+  - Tabela técnica com numeração hierárquica (`1`, `1.1`, `1.2`), IPs sem quebra de linha, badges de direção e áreas limpas.
+  - Assinatura digital Authenticode com certificado LLSystem.
 - Atalho para **abrir a pasta de relatórios** no Windows Explorer.
 
 ---
@@ -60,7 +70,8 @@ Bot Varredura - Control ID/
 │   │   └── device.py               # Dataclasses ControlIdDevice, ScanSummary e DocumentMetadata
 │   └── services/
 │       ├── report_service.py       # Exportação CSV/JSON e atalho para pasta de relatórios
-│       └── document_service.py     # Geração do Documento Interno em PDF (ReportLab)
+│       ├── document_service.py     # Geração do Documento Interno em PDF (ReportLab)
+│       └── turnstile_linker.py     # Agrupamento hierárquico de catracas e leitores subordinados
 │
 ├── frontend/                       # Camada Visual Desktop (Flet)
 │   ├── app.py                      # Controlador principal e eventos da interface

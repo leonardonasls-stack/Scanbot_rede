@@ -91,8 +91,8 @@ def generate_internal_document_pdf(
         "TableHeader",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=9,
-        leading=11,
+        fontSize=8,
+        leading=10,
         textColor=colors.white,
         alignment=1  # Centralizado
     )
@@ -106,13 +106,32 @@ def generate_internal_document_pdf(
         textColor=colors.HexColor("#1E293B")
     )
 
+    table_cell_center = ParagraphStyle(
+        "TableCellCenter",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#1E293B"),
+        alignment=1
+    )
+
     table_cell_mono = ParagraphStyle(
         "TableCellMono",
         parent=styles["Normal"],
         fontName="Courier",
-        fontSize=8,
-        leading=10,
+        fontSize=7.5,
+        leading=9.5,
         textColor=colors.HexColor("#0F172A")
+    )
+
+    table_cell_mono_child = ParagraphStyle(
+        "TableCellMonoChild",
+        parent=styles["Normal"],
+        fontName="Courier",
+        fontSize=7.5,
+        leading=9.5,
+        textColor=colors.HexColor("#0284C7")
     )
 
     elements = []
@@ -200,7 +219,7 @@ def generate_internal_document_pdf(
     elements.append(Paragraph("<b>RELAÇÃO DETALHADA DE EQUIPAMENTOS IDENTIFICADOS</b>", label_style))
     elements.append(Spacer(1, 6))
 
-    from backend.services.turnstile_linker import link_turnstiles_and_readers
+    from backend.services.turnstile_linker import link_turnstiles_and_readers, clean_display_area
     grouped_pdf = link_turnstiles_and_readers(summary.devices)
 
     table_data = [
@@ -217,47 +236,57 @@ def generate_internal_document_pdf(
 
     if not summary.devices:
         table_data.append([
-            Paragraph("-", table_cell_style),
+            Paragraph("-", table_cell_center),
             Paragraph("Nenhum equipamento localizado na varredura", table_cell_style),
+            Paragraph("-", table_cell_center),
+            Paragraph("-", table_cell_center),
             Paragraph("-", table_cell_style),
             Paragraph("-", table_cell_style),
-            Paragraph("-", table_cell_style),
-            Paragraph("-", table_cell_style),
-            Paragraph("-", table_cell_style),
+            Paragraph("-", table_cell_center),
         ])
     else:
-        item_counter = 1
+        parent_counter = 1
         for parent, children in grouped_pdf:
             is_turnstile = "idblock" in parent.model.lower()
-            parent_model_str = f"<b>{parent.model} (Catraca)</b>" if is_turnstile else f"<b>{parent.model}</b>"
+            parent_model_str = f"<b>{parent.model}</b>"
+            clean_parent_area = clean_display_area(parent)
+
             table_data.append([
-                Paragraph(str(item_counter), table_cell_style),
-                Paragraph(parent.ip, table_cell_mono),
+                Paragraph(f"<b>{parent_counter}</b>", table_cell_center),
+                Paragraph(f"<b>{parent.ip}</b>", table_cell_mono),
                 Paragraph(parent.mac, table_cell_mono),
                 Paragraph(parent.serial_number, table_cell_mono),
                 Paragraph(parent_model_str, table_cell_style),
-                Paragraph(parent.area or "N/D", table_cell_style),
-                Paragraph(parent.firmware_version, table_cell_style),
+                Paragraph(clean_parent_area, table_cell_style),
+                Paragraph(parent.firmware_version, table_cell_center),
             ])
-            item_counter += 1
 
-            for child in children:
-                role_label = "↳ Leitor (Entrada)" if child.role == "reader_entry" else (
-                    "↳ Leitor (Saída)" if child.role == "reader_exit" else "↳ Leitor Vinculado"
-                )
-                child_model_str = f"<font color='#0369A1'><b>{role_label}</b></font><br/>{child.model}"
+            for c_idx, child in enumerate(children, start=1):
+                if child.role == "reader_entry":
+                    badge_html = "<font color='#059669'><b>[Entrada]</b></font>"
+                elif child.role == "reader_exit":
+                    badge_html = "<font color='#D97706'><b>[Saída]</b></font>"
+                else:
+                    badge_html = "<font color='#0284C7'><b>[Vinculado]</b></font>"
+
+                child_model_str = f"{badge_html} {child.model}"
+                clean_child_area = clean_display_area(child)
+
                 table_data.append([
-                    Paragraph("", table_cell_style),
-                    Paragraph(f"&nbsp;&nbsp;{child.ip}", table_cell_mono),
+                    Paragraph(f"<font color='#64748B'>{parent_counter}.{c_idx}</font>", table_cell_center),
+                    Paragraph(f"↳ {child.ip}", table_cell_mono_child),
                     Paragraph(child.mac, table_cell_mono),
                     Paragraph(child.serial_number, table_cell_mono),
                     Paragraph(child_model_str, table_cell_style),
-                    Paragraph(child.area or "N/D", table_cell_style),
-                    Paragraph(child.firmware_version, table_cell_style),
+                    Paragraph(clean_child_area, table_cell_style),
+                    Paragraph(child.firmware_version, table_cell_center),
                 ])
-                item_counter += 1
 
-    devices_table = Table(table_data, colWidths=[28, 80, 95, 105, 95, 70, 49])
+            parent_counter += 1
+
+    # Larguras recalculadas para a página A4 (523pt úteis com margens 36pt):
+    # Total = 34 + 92 + 96 + 88 + 98 + 68 + 47 = 523pt
+    devices_table = Table(table_data, colWidths=[34, 92, 96, 88, 98, 68, 47])
     t_style = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
         ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#475569")),

@@ -2,7 +2,7 @@ from typing import List, Optional
 import flet as ft
 
 from backend.models.device import ControlIdDevice
-from backend.services.turnstile_linker import link_turnstiles_and_readers
+from backend.services.turnstile_linker import link_turnstiles_and_readers, clean_display_area
 from frontend.styles.theme import (
     COLOR_SURFACE,
     COLOR_BORDER,
@@ -105,18 +105,34 @@ class DeviceTable(ft.Container):
         ]
 
         if role_label:
+            is_entry = "entrada" in role_label.lower()
+            is_exit = "saída" in role_label.lower() or "saida" in role_label.lower()
+
+            if is_entry:
+                txt_color = "#34D399"
+                bg_color = "#064E3B"
+                border_color = "#059669"
+            elif is_exit:
+                txt_color = "#FBBF24"
+                bg_color = "#451A03"
+                border_color = "#D97706"
+            else:
+                txt_color = "#38BDF8"
+                bg_color = "#082F49"
+                border_color = "#0284C7"
+
             badge_controls.append(
                 ft.Container(
                     content=ft.Text(
                         role_label,
-                        size=10,
-                        weight=ft.FontWeight.W_600,
-                        color="#0284C7"
+                        size=11,
+                        weight=ft.FontWeight.BOLD,
+                        color=txt_color
                     ),
-                    bgcolor="#082F49",
-                    padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                    bgcolor=bg_color,
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                     border_radius=4,
-                    border=ft.Border.all(1, "#0369A1")
+                    border=ft.Border.all(1, border_color)
                 )
             )
 
@@ -178,11 +194,12 @@ class DeviceTable(ft.Container):
         )
 
         # Célula de Área / Local
+        display_area = clean_display_area(device)
         area_cell = ft.Text(
-            device.area,
+            display_area,
             size=12,
             weight=ft.FontWeight.W_500,
-            color="#E2E8F0" if device.area != "N/D" else COLOR_TEXT_MUTED
+            color="#E2E8F0" if display_area != "N/D" else COLOR_TEXT_MUTED
         )
 
         # Célula de Firmware
@@ -228,8 +245,8 @@ class DeviceTable(ft.Container):
 
             # Linhas dos Leitores Vinculados
             for child in children:
-                role_str = "Leitor Facial (Entrada)" if child.role == "reader_entry" else (
-                    "Leitor Facial (Saída)" if child.role == "reader_exit" else "Leitor Facial Vinculado"
+                role_str = "Entrada" if child.role == "reader_entry" else (
+                    "Saída" if child.role == "reader_exit" else "Vinculado"
                 )
                 self.table.rows.append(self._create_row(child, is_child=True, role_label=role_str))
 

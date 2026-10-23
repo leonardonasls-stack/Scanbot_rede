@@ -60,6 +60,64 @@ def _is_adapted_turnstile(turnstile: ControlIdDevice) -> bool:
     return len(clean_sn) <= 6
 
 
+def clean_display_area(device: ControlIdDevice) -> str:
+    """
+    Retorna uma representação limpa e objetiva da área/localização do equipamento,
+    removendo áreas genéricas ou não vinculadas aos portais daquele dispositivo.
+    Exemplos:
+      - Catraca: 'Pátio' (ou 'Pátio / Estacionamento')
+      - Leitor facial: 'Pátio'
+    """
+    raw_info = device.raw_info or {}
+    raw_areas = raw_info.get("_raw_areas") or []
+    raw_portals = raw_info.get("_raw_portals") or []
+
+    # Cria mapa de area_id -> nome da área
+    area_map = {}
+    for a in raw_areas:
+        if isinstance(a, dict) and a.get("id") is not None and a.get("name"):
+            name = str(a.get("name")).strip()
+            area_map[a.get("id")] = name
+
+    # Identifica IDs de áreas referenciadas nos portais deste dispositivo
+    relevant_area_names = []
+    for p in raw_portals:
+        if isinstance(p, dict):
+            for key in ("area_to_id", "area_from_id"):
+                aid = p.get(key)
+                if aid in area_map:
+                    aname = area_map[aid]
+                    if aname.lower() != "área padrão" and aname not in relevant_area_names:
+                        relevant_area_names.append(aname)
+
+    if relevant_area_names:
+        # Se for leitor facial subordinado, prioriza a primeira área relevante (área interna de destino)
+        if "face" in device.model.lower() and len(relevant_area_names) >= 1:
+            return relevant_area_names[0]
+        return " / ".join(relevant_area_names[:2])
+
+    # Fallback: se não tiver raw_portals, limpa a string existente
+    area_str = device.area or ""
+    if area_str and area_str != "N/D":
+        m_to = re.search(r"\((?:TO:\s*|Portal:\s*)([^)]+)\)", area_str, re.IGNORECASE)
+        if m_to:
+            cand = m_to.group(1).strip()
+            if cand.lower() not in ("portal", "n/d", "área padrão", "area padrao"):
+                return cand
+
+        cleaned = re.sub(r"(?i)^área\s+padr[ãa]o\s*,\s*", "", area_str)
+        cleaned = re.sub(r"\s*\(\(.*?\)\)", "", cleaned)
+        cleaned = re.sub(r"\s*\(TO:.*?\)", "", cleaned)
+        cleaned = re.sub(r"\s*\(Portal\)", "", cleaned)
+        cleaned = cleaned.strip(" ,;")
+        if cleaned:
+            parts = [p.strip() for p in cleaned.split(",") if p.strip() and p.strip().lower() != "área padrão"]
+            if parts:
+                return parts[-1] if "face" in device.model.lower() else " / ".join(parts[:2])
+
+    return device.area or "N/D"
+
+
 def _extract_base_device_name(name: str) -> str:
     """
     Extrai o nome base do equipamento removendo sufixos comuns de direção ou portal.
@@ -226,23 +284,51 @@ def link_turnstiles_and_readers(devices: List[ControlIdDevice]) -> List[Tuple[Co
 
         if matched_turnstile:
             o.parent_turnstile_ip = matched_turnstile.ip
-            # Define papel com base no nome do leitor (ex: 'Entrada' ou 'Saída') ou na área
-            check_name = (o_dev_name + " " + o_area_upper).upper()
-            if any(w in check_name for w in ("ENTRADA", "IN")):
-                o.role = "reader_entry"
-            elif any(w in check_name for w in ("SAÍDA", "SAIDA", "OUT", "EXIT")):
-                o.role = "reader_exit"
-            else:
-                o.role = "reader"
+            
+            # Determina papel (Entrada / Saída) com precisão:
+            # 1. Prioridade máxima: sufixo/palavra final do nome do leitor (ex: 'Entrada 1 Saída' -> 'Saída', 'Entrada 1 Entrada' -> 'Entrada')
+            # 2. Correspondência por regex de fronteira (\b) no nome do leitor
+            # 3. Análise da área / portal configurado no leitor
+            role = "reader"
+            dev_tokens = re.findall(r"[A-Za-zÀ-ÿ]+", o_dev_name)
+            last_token = dev_tokens[-1].upper() if dev_tokens else ""
+
+            if last_token in ("SAIDA", "SAÍDA", "OUT", "EXIT"):
+                role = "reader_exit"
+            elif last_token in ("ENTRADA", "IN"):
+                role = "reader_entry"
+            elif re.search(r"\b(?:sa[ií]da|out|exit)\b", o_dev_name, re.IGNORECASE):
+                role = "reader_exit"
+            elif re.search(r"\b(?:entrada|in)\b", o_dev_name, re.IGNORECASE):
+                role = "reader_entry"
+            elif re.search(r"\b(?:sa[ií]da|out|exit)\b", o_area_upper, re.IGNORECASE):
+                role = "reader_exit"
+            elif re.search(r"\b(?:entrada|in)\b", o_area_upper, re.IGNORECASE):
+                role = "reader_entry"
+
+            o.role = role
             turnstile_children[matched_turnstile.ip].append(o)
             linked_others.add(o.ip)
         else:
             o.role = "standalone"
 
     # Se a catraca possuir leitores faciais acoplados/vinculados, seu modelo é "iDBlock Facial"
+    # Preserva ou adiciona a especificidade de PNE se aplicável
     for t in turnstiles:
         has_face_readers = any("face" in child.model.lower() for child in turnstile_children.get(t.ip, []))
-        if has_face_readers:
+        is_pne = (
+            "pne" in t.model.lower() or
+            (t.serial_number or "").startswith("0K1400") or
+            re.search(r"\bpne\b", t.area or "", re.IGNORECASE) or
+            any(
+                re.search(r"\bpne\b", str(d.get("name") or ""), re.IGNORECASE)
+                for d in ((t.raw_info or {}).get("_raw_devices") or [])
+                if isinstance(d, dict)
+            )
+        )
+        if is_pne:
+            t.model = "iDBlock Facial PNE" if has_face_readers else "iDBlock PNE"
+        elif has_face_readers:
             t.model = "iDBlock Facial"
 
     # Monta a estrutura final

@@ -173,7 +173,36 @@ def _extract_model(data: Dict[str, Any], html_content: Optional[Union[str, List[
                 return "iDFace Pro (iDBlock Facial)"
             return "iDFace (iDBlock Facial)"
         elif candidate_model == "Control iD (Genérico)":
-            return "iDBlock"
+            candidate_model = "iDBlock"
+
+    # 6. Refinamento de iDBlock PNE:
+    # Identifica catracas PNE por prefixo do número de série (ex: 0K1400) ou indícios de PNE no nome/configurações
+    if "idblock" in candidate_model.lower():
+        is_pne = False
+        sn = str(data.get("serial") or data.get("serial_number") or data.get("serialNumber") or "")
+        if sn.startswith("0K1400"):
+            is_pne = True
+        else:
+            dev_name = str(data.get("device_name") or data.get("name") or "")
+            if re.search(r"\bpne\b", dev_name, re.IGNORECASE):
+                is_pne = True
+            else:
+                raw_devs = data.get("_raw_devices")
+                if isinstance(raw_devs, list):
+                    for d in raw_devs:
+                        if isinstance(d, dict) and re.search(r"\bpne\b", str(d.get("name") or ""), re.IGNORECASE):
+                            is_pne = True
+                            break
+                if not is_pne:
+                    raw_ports = data.get("_raw_portals")
+                    if isinstance(raw_ports, list):
+                        for p in raw_ports:
+                            if isinstance(p, dict) and re.search(r"\bpne\b", str(p.get("name") or ""), re.IGNORECASE):
+                                is_pne = True
+                                break
+
+        if is_pne:
+            return "iDBlock PNE"
 
     return candidate_model
 

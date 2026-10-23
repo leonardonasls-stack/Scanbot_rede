@@ -149,6 +149,22 @@ class TestBackend(unittest.TestCase):
             }, []),
             "iDFace (iDBlock Facial)"
         )
+        # 6e. iDBlock com serial de PNE (0K1400)
+        self.assertEqual(
+            _extract_model({
+                "model": "iDBlock",
+                "serial_number": "0K1400/0000A3"
+            }, []),
+            "iDBlock PNE"
+        )
+        # 6f. iDBlock com dispositivo PNE nos devices cadastrados
+        self.assertEqual(
+            _extract_model({
+                "model": "iDBlock",
+                "_raw_devices": [{"id": 1, "name": "Entrada PNE", "ip": "192.168.91.219"}]
+            }, []),
+            "iDBlock PNE"
+        )
 
     def test_turnstile_linker_grouping(self):
         from backend.services.turnstile_linker import link_turnstiles_and_readers
